@@ -1,0 +1,99 @@
+const cloudinary = require("cloudinary").v2;
+const Recording = require("../models/recording");
+const recordingService = require("../services/recording.service");
+
+exports.uploadAudio = async (req, res) => {
+  try {
+    const { personId, sentenceId } = req.body;
+    if (!personId || !sentenceId) {
+      return res.status(400).json({
+        success: false,
+        message: "Thiếu personId hoặc sentenceId",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Thiếu file audio",
+      });
+    }
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      resource_type: "video",
+      folder: "lesson_audio",
+    });
+    const recording = await Recording.create({
+      personId,
+      sentenceId,
+      audioUrl: result.secure_url,
+      isApproved: 0, // 0 = chờ duyệt
+      duration: result.duration || null,
+      recordedAt: new Date(),
+    });
+    res.status(201).json({
+      success: true,
+      message: "Upload audio thành công",
+      data: recording,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+//GET ALL RECORDING
+exports.getAllRecordings = async (req, res) => {
+  try {
+    const result = await recordingService.getAllRecordings();
+    res.status(200).json({
+      count: result.count,
+      totalDurationSeconds: result.totalDurationSeconds,
+      totalDurationHours: result.totalDurationHours,
+      data: result.recordings
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching recordings", error: err.message });
+  }
+};
+
+// APPROVE RECORDING
+exports.approveRecording = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const updatedRecording = await recordingService.approveRecording(id);
+    res.status(200).json(updatedRecording);
+  } catch (err) {
+    res.status(500).json({ message: "Error approving recording", error: err.message });
+  }
+};
+
+// REJECT RECORDING
+exports.rejectRecording = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const updatedRecording = await recordingService.rejectRecording(id);
+    res.status(200).json(updatedRecording);
+  } catch (err) {
+    res.status(500).json({ message: "Error rejecting recording", error: err.message });
+  }
+};
+
+// GET RECORDING BY STATUS
+exports.getRecordingsByStatus = async (req, res) => {
+  try {
+    const { status } = req.params;
+
+    const recordings = await recordingService.getRecordingsByStatus(status);
+
+    res.json({
+      isApproved: Number(status),
+      count: recordings.length,
+      data: recordings
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};

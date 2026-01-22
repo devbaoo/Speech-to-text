@@ -1,0 +1,176 @@
+const userService = require("../services/person.service");
+const jwt = require("jsonwebtoken");
+
+exports.createGuestUser = async (req, res) => {
+  try {
+    const result = await userService.createGuest(req.body);
+    const user = result.user || result;
+
+    return res.status(201).json({
+      message: "Add user successful",
+      userId: user._id
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// User login by email (returns JWT)
+exports.loginUser = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await userService.loginUser(email);
+
+    const token = jwt.sign(
+      {
+        role: "User",
+        userId: user._id,
+        email: user.email
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
+    );
+
+    res.json({
+      message: "Login user success",
+      token
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+
+exports.getAll = async (req, res) => {
+  try {
+    const users = await userService.getUsers();
+    res.json({
+      count: users.length,
+      data: users
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+
+    const updatedUser = await userService.updateUserName(id, name);
+
+    res.json({
+      message: "User updated successfully",
+      user: {
+        id: updatedUser._id,
+        name: updatedUser.name,
+        gender: updatedUser.gender
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+exports.deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const deletedUser = await userService.deleteUser(id);
+
+    res.json({
+      message: "User deleted successfully",
+      deletedUser: {
+        id: deletedUser._id,
+        name: deletedUser.name
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+exports.getTopRecorders = async (req, res) => {
+  try {
+    const { status, limit } = req.query;
+
+    const users = await userService.getUsersByRecordingCount(status, limit);
+
+    res.json({
+      filter: {
+        status: status ? Number(status) : null,
+        limit
+      },
+      count: users.length,
+      data: users
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Get top users by sentence contributions (only sentences with status 1,2,3)
+exports.getTopSentenceContributors = async (req, res) => {
+  try {
+    const { limit } = req.query;
+    const lim = limit ? Number(limit) : null;
+    const users = await userService.getUsersBySentenceCount(lim);
+
+    res.json({
+      filter: {
+        limit: lim
+      },
+      count: users.length,
+      data: users
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Get top users by number of distinct sentences they recorded
+exports.getTopSentenceRecorders = async (req, res) => {
+  try {
+    const { status, limit } = req.query;
+
+    const users = await userService.getUsersByUniqueSentenceCount(limit,status);
+
+    res.json({
+      filter: {
+        status: status !== undefined ? Number(status) : null,
+        limit
+      },
+      count: users.length,
+      data: users
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Total number of sentences contributed by users
+exports.getTotalUserContributions = async (req, res) => {
+  try {
+    const include = req.query.include === undefined ? true : req.query.include === "true";
+    const limit = req.query.limit ? Number(req.query.limit) : null;
+
+    const result = await userService.getTotalUserContributions({
+      includeSentences: include,
+      limit
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+exports.getUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await userService.getUserById(id);
+    res.json({ count: 1, data: [user] });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
