@@ -42,6 +42,22 @@ exports.getUsers = async (page = 1, limit = 20) => {
 
     const totalCount = await Person.countDocuments();
     
+    // Global stats: Tổng Nam, Tổng Nữ
+    const totalMale = await Person.countDocuments({ gender: "Male" });
+    const totalFemale = await Person.countDocuments({ gender: "Female" });
+    
+    // Global stats: Tổng số câu đã làm (tổng recording đã được duyệt của tất cả user)
+    const totalCompletedSentencesAgg = await recording.aggregate([
+      { $match: { isApproved: 1 } },
+      {
+        $group: {
+          _id: null,
+          totalCount: { $sum: 1 }
+        }
+      }
+    ]);
+    const totalCompletedSentences = totalCompletedSentencesAgg[0]?.totalCount || 0;
+    
     // Only get stats for current page users
     const userIds = rows.map(r => r._id);
     if (!userIds.length) {
@@ -50,7 +66,10 @@ exports.getUsers = async (page = 1, limit = 20) => {
         count: 0,
         totalCount,
         totalPages: Math.ceil(totalCount / limit),
-        currentPage: page
+        currentPage: page,
+        totalMale,
+        totalFemale,
+        totalCompletedSentences
       };
     }
 
@@ -74,7 +93,7 @@ exports.getUsers = async (page = 1, limit = 20) => {
       };
     });
 
-    // Get sentence contributions for paginated users
+    // Get sentence contributions for paginated users (chỉ tính câu có status = 1)
     const contributionStats = await sentence.aggregate([
       { $match: { createdBy: { $in: rows.map(r => r.email) }, status: 1 } },
       { $group: { _id: "$createdBy", count: { $sum: 1 } } }
@@ -85,11 +104,51 @@ exports.getUsers = async (page = 1, limit = 20) => {
       contributionMap[stat._id] = stat.count;
     });
 
+    // Get detailed recordings for each user (câu đã làm)
+    const userRecordingsMap = {};
+    for (const userId of userIds) {
+      const userRecordings = await recording.find({ 
+        personId: userId, 
+        isApproved: 1 
+      })
+        .populate("sentenceId", "content")
+        .select("sentenceId duration recordedAt audioUrl")
+        .lean();
+      
+      userRecordingsMap[userId.toString()] = userRecordings.map(r => ({
+        SentenceID: r.sentenceId?._id || r.sentenceId,
+        Content: r.sentenceId?.content || null,
+        Duration: r.duration || null,
+        RecordedAt: r.recordedAt,
+        AudioUrl: r.audioUrl || null
+      }));
+    }
+
+    // Get detailed sentence contributions for each user (câu đóng góp)
+    const userContributionsMap = {};
+    for (const row of rows) {
+      const userSentences = await sentence.find({ 
+        createdBy: row.email, 
+        status: 1 
+      })
+        .select("content createdAt status")
+        .lean();
+      
+      userContributionsMap[row.email] = userSentences.map(s => ({
+        SentenceID: s._id,
+        Content: s.content,
+        Status: s.status,
+        CreatedAt: s.createdAt
+      }));
+    }
+
     const users = rows.map(u => ({
       ...toPublicUser(u),
       TotalRecordings: recordingMap[u._id.toString()]?.count || 0,
       TotalRecordingDuration: recordingMap[u._id.toString()]?.duration || 0,
-      TotalSentenceContributions: contributionMap[u.email] || 0
+      TotalSentenceContributions: contributionMap[u.email] || 0,
+      Recordings: userRecordingsMap[u._id.toString()] || [],
+      SentenceContributions: userContributionsMap[u.email] || []
     }));
 
     return {
@@ -97,7 +156,10 @@ exports.getUsers = async (page = 1, limit = 20) => {
       count: users.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
-      currentPage: page
+      currentPage: page,
+      totalMale,
+      totalFemale,
+      totalCompletedSentences
     };
 };
 

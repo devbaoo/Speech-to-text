@@ -184,6 +184,10 @@ exports.getAll = async (req, res) => {
       totalCount: result.totalCount,
       totalPages: result.totalPages,
       currentPage: result.currentPage,
+      pendingCount: result.pendingCount,
+      approvedCount: result.approvedCount,
+      rejectedCount: result.rejectedCount,
+      recordedCount: result.recordedCount,
       data: result.sentences
     });
   } catch (err) {

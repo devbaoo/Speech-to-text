@@ -47,11 +47,20 @@ exports.getAll = async (req, res) => {
     const limit = Math.min(100, parseInt(req.query.limit) || 20);
     
     const result = await userService.getUsers(page, limit);
+    const totalContributions = await userService.getTotalUserContributions({
+      includeSentences: false,
+      limit,
+      page
+    });
     res.json({
       count: result.count,
       totalCount: result.totalCount,
       totalPages: result.totalPages,
       currentPage: result.currentPage,
+      totalContributedSentences: totalContributions.totalContributed,
+      totalMale: result.totalMale,
+      totalFemale: result.totalFemale,
+      totalCompletedSentences: result.totalCompletedSentences,
       data: result.users
     });
   } catch (error) {

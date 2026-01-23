@@ -2,6 +2,7 @@ const cloudinary = require("cloudinary").v2;
 const fs = require("fs");
 const Recording = require("../models/recording");
 const Sentence = require("../models/sentence");
+const Person = require("../models/person"); // Import để đảm bảo model được đăng ký
 const { mapRecording } = require("../utils/recording.mapper");
 
 // upload audio
@@ -30,14 +31,37 @@ const uploadWavAudio = async (file) => {
 const getAllRecordings = async (page = 1, limit = 20) => {
   const skip = (page - 1) * limit;
   
-  // Get paginated recordings
+  // Get paginated recordings with populated personId and sentenceId
   const recordings = await Recording.find()
+    .populate("personId", "email")
+    .populate("sentenceId", "content")
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit);
   
   // Get total count for metadata (using countDocuments for large collections)
   const totalCount = await Recording.countDocuments();
+
+  // Global stats for recordings that have isApproved = 1 (đã duyệt)
+  const approvedAgg = await Recording.aggregate([
+    { $match: { isApproved: 1 } },
+    {
+      $group: {
+        _id: null,
+        count: { $sum: 1 },
+        totalDuration: { $sum: { $ifNull: ["$duration", 0] } }
+      }
+    }
+  ]);
+  const approvedCount = approvedAgg[0]?.count || 0;
+  const approvedDurationSeconds = approvedAgg[0]?.totalDuration || 0;
+  const approvedDurationHours = approvedDurationSeconds / 3600;
+
+  // Global stats for recordings that have isApproved = 0 (chờ duyệt)
+  const pendingCount = await Recording.countDocuments({ isApproved: 0 });
+
+  // Global stats for recordings that have isApproved = 2 (bị từ chối)
+  const rejectedCount = await Recording.countDocuments({ isApproved: 2 });
   
   // Calculate totals only from current page (optimize later if needed)
   const mapped = recordings.map(mapRecording);
@@ -51,7 +75,12 @@ const getAllRecordings = async (page = 1, limit = 20) => {
     totalPages: Math.ceil(totalCount / limit),
     currentPage: page,
     totalDurationSeconds,
-    totalDurationHours
+    totalDurationHours,
+    approvedCount,
+    approvedDurationSeconds,
+    approvedDurationHours,
+    pendingCount,
+    rejectedCount
   };
 };
 
