@@ -30,121 +30,109 @@ exports.loginUser = async (email) => {
   return user;
 };
 
-exports.getUsers = async () => {
+exports.getUsers = async (page = 1, limit = 20) => {
+    const skip = (page - 1) * limit;
+    
+    // Get paginated users
     const rows = await Person.find()
-      .select("email gender role createdAt");
+      .select("email gender role createdAt")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
 
-    const users = rows.map(toPublicUser);
+    const totalCount = await Person.countDocuments();
+    
+    // Only get stats for current page users
     const userIds = rows.map(r => r._id);
-    if (!userIds.length) return users;
-    const uniqueAgg = await recording.aggregate([
-      { $match: { personId: { $in: userIds }, isApproved: 1 } },
-      { $group: { _id: { personId: "$personId", sentenceId: "$sentenceId" } } },
-      { $group: { _id: "$_id.personId", sentences: { $push: "$_id.sentenceId" } } }
-    ]);
-
-    const durationAgg = await recording.aggregate([
-      { $match: { personId: { $in: userIds }, isApproved: 1 } },
-      { $group: { _id: "$personId", totalDuration: { $sum: { $ifNull: ["$duration", 0] } } } }
-    ]);
-
-    const sentencesMap = {};
-    uniqueAgg.forEach(item => {
-      sentencesMap[item._id.toString()] = item.sentences.map(s => s.toString());
-    });
-
-    const durationMap = {};
-    durationAgg.forEach(item => {
-      durationMap[item._id.toString()] = item.totalDuration;
-    });
-    const contribAgg = await sentence.aggregate([
-      { $match: { createdBy: { $ne: null } } },
-      { $group: { _id: "$createdBy", count: { $sum: 1 } } }
-    ]);
-    const contribMap = {};
-    contribAgg.forEach(item => { contribMap[item._id] = item.count; });
-    // contributions approved by createdBy email
-    const contribApprovedByEmailAgg = await sentence.aggregate([
-      { $match: { createdBy: { $ne: null }, status: 1 } },
-      { $group: { _id: "$createdBy", count: { $sum: 1 } } }
-    ]);
-    const contribApprovedEmailMap = {};
-    contribApprovedByEmailAgg.forEach(item => { contribApprovedEmailMap[item._id] = item.count; });
-    // contributions approved by createdById
-    const contribApprovedByIdAgg = await sentence.aggregate([
-      { $match: { createdById: { $ne: null }, status: 1 } },
-      { $group: { _id: "$createdById", count: { $sum: 1 } } }
-    ]);
-    const contribApprovedIdMap = {};
-    contribApprovedByIdAgg.forEach(item => { contribApprovedIdMap[item._id?.toString()] = item.count; });
-    const userNames = users.map(u => u.Email).filter(Boolean);
-    let createdSentences = [];
-    if (userNames.length) {
-      createdSentences = await sentence.find({ createdBy: { $in: userNames } })
-        .select("content status createdBy createdAt")
-        .sort({ createdAt: -1 })
-        .lean();
-    }
-    const createdByMap = {};
-    createdSentences.forEach(s => {
-      createdByMap[s.createdBy] = createdByMap[s.createdBy] || [];
-      createdByMap[s.createdBy].push({
-        SentenceID: s._id,
-        Content: s.content,
-        Status: s.status,
-        CreatedAt: s.createdAt
-      });
-    });
-    const allSentenceIds = Object.values(sentencesMap).flat();
-    let sentenceDocs = [];
-    if (allSentenceIds.length) {
-      sentenceDocs = await sentence.find({ _id: { $in: allSentenceIds } })
-        .select("content");
-    }
-    const sentenceById = {};
-    sentenceDocs.forEach(s => { sentenceById[s._id.toString()] = s.content; });
-    const results = users.map(u => {
-      const uid = u.PersonID.toString();
-      const sentenceIds = sentencesMap[uid] || [];
-      const sentencesDone = sentenceIds.map(id => ({
-        SentenceID: id,
-        Content: sentenceById[id] || null
-      }));
-      const totalDuration = durationMap[uid] || 0;
-      const totalSentencesDone = (sentenceIds || []).length;
+    if (!userIds.length) {
       return {
-        ...u,
-        SentencesDone: sentencesDone,
-        TotalRecordingDuration: totalDuration,
-        TotalSentencesDone: totalSentencesDone,
-        TotalContributedByUser: contribMap[u.Email] || 0,
-        TotalContributedApproved: contribApprovedIdMap[uid] || contribApprovedEmailMap[u.Email] || 0,
-        CreatedSentences: createdByMap[u.Email] || []
+        users: rows.map(toPublicUser),
+        count: 0,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        currentPage: page
+      };
+    }
+
+    // Get recordings stats for paginated users
+    const recordingStats = await recording.aggregate([
+      { $match: { personId: { $in: userIds }, isApproved: 1 } },
+      {
+        $group: {
+          _id: "$personId",
+          recordingCount: { $sum: 1 },
+          totalDuration: { $sum: { $ifNull: ["$duration", 0] } }
+        }
+      }
+    ]);
+
+    const recordingMap = {};
+    recordingStats.forEach(stat => {
+      recordingMap[stat._id.toString()] = {
+        count: stat.recordingCount,
+        duration: stat.totalDuration
       };
     });
 
-    return results;
+    // Get sentence contributions for paginated users
+    const contributionStats = await sentence.aggregate([
+      { $match: { createdBy: { $in: rows.map(r => r.email) }, status: 1 } },
+      { $group: { _id: "$createdBy", count: { $sum: 1 } } }
+    ]);
+
+    const contributionMap = {};
+    contributionStats.forEach(stat => {
+      contributionMap[stat._id] = stat.count;
+    });
+
+    const users = rows.map(u => ({
+      ...toPublicUser(u),
+      TotalRecordings: recordingMap[u._id.toString()]?.count || 0,
+      TotalRecordingDuration: recordingMap[u._id.toString()]?.duration || 0,
+      TotalSentenceContributions: contributionMap[u.email] || 0
+    }));
+
+    return {
+      users,
+      count: users.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+      currentPage: page
+    };
 };
 
 // Total number of sentences contributed by users (createdBy not null)
 exports.getTotalUserContributions = async (options = {}) => {
-  const { includeSentences = true, limit = null } = options;
+  const { includeSentences = true, limit = null, page = 1 } = options;
+  const pageLimit = limit || 20;
+  const skip = (page - 1) * pageLimit;
 
   const total = await sentence.countDocuments({ createdBy: { $ne: null } });
 
   if (!includeSentences) {
-    return { totalContributed: total };
+    return { 
+      totalContributed: total,
+      currentPage: page,
+      pageLimit
+    };
   }
 
   let query = sentence.find({ createdBy: { $ne: null } })
     .select("content status createdBy createdAt")
-    .sort({ createdAt: -1 });
-
-  if (limit) query = query.limit(Number(limit));
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(pageLimit);
 
   const sentences = await query.lean();
 
-  return { totalContributed: total, sentences };
+  return { 
+    totalContributed: total,
+    sentences,
+    count: sentences.length,
+    currentPage: page,
+    totalPages: Math.ceil(total / pageLimit),
+    pageLimit
+  };
 };
 
 exports.loginAdmin = async (username, password) => {

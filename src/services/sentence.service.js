@@ -11,39 +11,53 @@ exports.createSentence = async (content) => {
         .split(/[.!?]/)
         .map(s => s.trim())
         .filter(s => s.length > 0);
-    // Check duplicates (case-insensitive) before creating
-    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const existing = await Promise.all(
-      sentences.map(async (text) => {
-        return await Sentence.findOne({
-          content: { $regex: new RegExp(`^${escapeRegex(text)}$`, 'i') }
+    
+    // Check duplicates with exact matching (much faster than regex)
+    const toCreate = [];
+    const dupes = [];
+    
+    for (const text of sentences) {
+      const normalizedText = text.toLowerCase().trim();
+      const exists = await Sentence.findOne({
+        contentLower: normalizedText
+      });
+      
+      if (exists) {
+        dupes.push({ content: text, id: exists._id });
+      } else {
+        toCreate.push({
+          content: text,
+          contentLower: normalizedText,
+          status: 1
         });
-      })
-    );
-
-    const dupes = existing
-      .map((r, i) => (r ? { content: sentences[i], id: r._id } : null))
-      .filter(Boolean);
+      }
+    }
 
     if (dupes.length) {
       const dupeList = dupes.map(d => d.content).join(', ');
       throw new Error(`Duplicate sentences exist: ${dupeList}`);
     }
 
-    const data = sentences.map(text => ({
-        content: text,
-        status: 1
-    }));
-
-    return await Sentence.insertMany(data);
+    return await Sentence.insertMany(toCreate);
 };
 
 
-//Get all sentence 
-exports.getSentences = async () => {
+//Get all sentence with pagination
+exports.getSentences = async (page = 1, limit = 20) => {
+    const skip = (page - 1) * limit;
     const rows = await Sentence.find()
-  .select("content createdAt status createdBy");
-    return rows.map(mapSentence);
+      .select("content createdAt status createdBy")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+    const totalCount = await Sentence.countDocuments();
+    return {
+      sentences: rows.map(mapSentence),
+      count: rows.length,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+      currentPage: page
+    };
 };
 
 
@@ -59,14 +73,13 @@ exports.createUserSentence = async (content, userName = null) => {
         .map(s => s.trim())
         .filter(s => s.length > 0);
 
-    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
     const toInsert = [];
     const skipped = [];
 
     for (const text of sentences) {
+      const normalizedText = text.toLowerCase().trim();
       const exists = await Sentence.findOne({
-        content: { $regex: new RegExp(`^${escapeRegex(text)}$`, 'i') }
+        contentLower: normalizedText
       });
       if (exists) {
         skipped.push({ content: text, existingId: exists._id });
@@ -74,6 +87,7 @@ exports.createUserSentence = async (content, userName = null) => {
       }
       toInsert.push({
         content: text,
+        contentLower: normalizedText,
         status: 1,
         createdBy: userName || null,
       });
@@ -227,18 +241,30 @@ exports.deleteSentence = async (id) => {
   return sent;
 };
 
-//Get sentences by status
-exports.getSentencesByStatus = async (status) => {
+//Get sentences by status with pagination
+exports.getSentencesByStatus = async (status, page = 1, limit = 20) => {
   const validStatuses = [0, 1, 2, 3];
   if (!validStatuses.includes(Number(status))) {
     throw new Error("Status không hợp lệ. Chỉ chấp nhận: 0, 1, 2, 3");
   }
 
+  const skip = (page - 1) * limit;
   const rows = await Sentence.find({ status: Number(status) })
     .select("content createdAt status")
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+  
+  const totalCount = await Sentence.countDocuments({ status: Number(status) });
 
-  return rows.map(mapSentence);
+  return {
+    sentences: rows.map(mapSentence),
+    count: rows.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: page,
+    status: Number(status)
+  };
 };
 
 //Update sentence
@@ -267,15 +293,15 @@ exports.updateSentence = async (id, data) => {
 // Approve all pending sentences (status = 0)
 exports.approveAllPending = async () => {
   const pending = await Sentence.find({ status: 0 }).sort({ createdAt: 1 });
-  const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const approved = [];
   const rejected = [];
 
   for (const s of pending) {
+    const normalizedContent = s.content.toLowerCase().trim();
     const dup = await Sentence.findOne({
       _id: { $ne: s._id },
-      content: { $regex: new RegExp(`^${escapeRegex(s.content)}$`, 'i') },
+      contentLower: normalizedContent,
       status: { $in: [1, 2] }
     });
 

@@ -43,10 +43,16 @@ exports.loginUser = async (req, res) => {
 
 exports.getAll = async (req, res) => {
   try {
-    const users = await userService.getUsers();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    
+    const result = await userService.getUsers(page, limit);
     res.json({
-      count: users.length,
-      data: users
+      count: result.count,
+      totalCount: result.totalCount,
+      totalPages: result.totalPages,
+      currentPage: result.currentPage,
+      data: result.users
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
@@ -153,11 +159,13 @@ exports.getTopSentenceRecorders = async (req, res) => {
 exports.getTotalUserContributions = async (req, res) => {
   try {
     const include = req.query.include === undefined ? true : req.query.include === "true";
-    const limit = req.query.limit ? Number(req.query.limit) : null;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
 
     const result = await userService.getTotalUserContributions({
       includeSentences: include,
-      limit
+      limit,
+      page
     });
     res.json(result);
   } catch (error) {

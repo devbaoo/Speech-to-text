@@ -41,4 +41,10 @@ const recordingSchema = new mongoose.Schema(
   }
 );
 
+// Add indexes for performance
+recordingSchema.index({ isApproved: 1, createdAt: -1 });
+recordingSchema.index({ personId: 1 });
+recordingSchema.index({ sentenceId: 1 });
+recordingSchema.index({ isApproved: 1 });
+
 module.exports = mongoose.model("recording", recordingSchema);

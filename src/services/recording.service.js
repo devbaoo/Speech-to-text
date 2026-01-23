@@ -27,16 +27,29 @@ const uploadWavAudio = async (file) => {
 };
 
 // GET ALL 
-const getAllRecordings = async () => {
-  const recordings = await Recording.find().sort({ createdAt: -1 });
+const getAllRecordings = async (page = 1, limit = 20) => {
+  const skip = (page - 1) * limit;
+  
+  // Get paginated recordings
+  const recordings = await Recording.find()
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+  
+  // Get total count for metadata (using countDocuments for large collections)
+  const totalCount = await Recording.countDocuments();
+  
+  // Calculate totals only from current page (optimize later if needed)
   const mapped = recordings.map(mapRecording);
-
   const totalDurationSeconds = recordings.reduce((acc, r) => acc + (r.duration || 0), 0);
   const totalDurationHours = totalDurationSeconds / 3600;
 
   return {
     recordings: mapped,
     count: mapped.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: page,
     totalDurationSeconds,
     totalDurationHours
   };
@@ -49,12 +62,20 @@ const approveRecording = async (id) => {
   const sentence = await Sentence.findById(recording.sentenceId);
   if (!sentence) throw new Error("Sentence not found");
 
+  // Also check if current sentence already has status=2 (defensive)
+  if (sentence.status === 2) {
+    await Recording.findByIdAndUpdate(id, { isApproved: 3 });
+    throw new Error("Sentence này đã có recording được duyệt, không thể duyệt thêm recording khác");
+  }
+
   // Check duplicates: is there another sentence with same content already approved (status = 2)?
-  const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Use simpler matching without expensive regex operations
+  const normalizedContent = sentence.content.trim().toLowerCase();
   const dup = await Sentence.findOne({
     _id: { $ne: sentence._id },
-    content: { $regex: new RegExp(`^${escapeRegex(sentence.content)}$`, 'i') },
-    status: 2
+    status: 2,
+    // Note: For better performance, consider adding a denormalized 'contentLower' field
+    contentLower: normalizedContent
   });
 
   if (dup) {
@@ -62,12 +83,6 @@ const approveRecording = async (id) => {
     await Recording.findByIdAndUpdate(id, { isApproved: 3 });
     await Sentence.findByIdAndUpdate(sentence._id, { status: 3 });
     throw new Error("Đã tồn tại sentence đã được duyệt khác giống nội dung này; recording không thể duyệt");
-  }
-
-  // Also check if current sentence already has status=2 (defensive)
-  if (sentence.status === 2) {
-    await Recording.findByIdAndUpdate(id, { isApproved: 3 });
-    throw new Error("Sentence này đã có recording được duyệt, không thể duyệt thêm recording khác");
   }
 
   const updatedRecording = await Recording.findByIdAndUpdate(

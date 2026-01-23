@@ -47,9 +47,15 @@ exports.uploadAudio = async (req, res) => {
 //GET ALL RECORDING
 exports.getAllRecordings = async (req, res) => {
   try {
-    const result = await recordingService.getAllRecordings();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    
+    const result = await recordingService.getAllRecordings(page, limit);
     res.status(200).json({
       count: result.count,
+      totalCount: result.totalCount,
+      totalPages: result.totalPages,
+      currentPage: result.currentPage,
       totalDurationSeconds: result.totalDurationSeconds,
       totalDurationHours: result.totalDurationHours,
       data: result.recordings

@@ -152,13 +152,18 @@ exports.rejectSentence = async (req, res) => {
 exports.getSentencesByStatus = async (req, res) => {
   try {
     const { status } = req.params;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
 
-    const sentences = await sentenceService.getSentencesByStatus(status);
+    const result = await sentenceService.getSentencesByStatus(status, page, limit);
 
     res.json({
-      status: Number(status),
-      count: sentences.length,
-      data: sentences
+      status: result.status,
+      count: result.count,
+      totalCount: result.totalCount,
+      totalPages: result.totalPages,
+      currentPage: result.currentPage,
+      data: result.sentences
     });
   } catch (err) {
     res.status(400).json({
@@ -170,10 +175,16 @@ exports.getSentencesByStatus = async (req, res) => {
 
 exports.getAll = async (req, res) => {
   try {
-    const sentences = await sentenceService.getSentences();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    
+    const result = await sentenceService.getSentences(page, limit);
     res.json({
-      count: sentences.length,
-      data: sentences
+      count: result.count,
+      totalCount: result.totalCount,
+      totalPages: result.totalPages,
+      currentPage: result.currentPage,
+      data: result.sentences
     });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
