@@ -51,12 +51,23 @@ exports.getSentences = async (page = 1, limit = 20) => {
       .skip(skip)
       .limit(limit);
     const totalCount = await Sentence.countDocuments();
+    
+    // Global stats for sentences by status
+    const pendingCount = await Sentence.countDocuments({ status: 0 }); // Chờ duyệt
+    const approvedCount = await Sentence.countDocuments({ status: 1 }); // Đã duyệt
+    const rejectedCount = await Sentence.countDocuments({ status: 3 }); // Bị từ chối (status = 3)
+    const recordedCount = await Sentence.countDocuments({ status: 2 }); // Đã thu âm (status = 2)
+    
     return {
       sentences: rows.map(mapSentence),
       count: rows.length,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
-      currentPage: page
+      currentPage: page,
+      pendingCount,
+      approvedCount,
+      rejectedCount,
+      recordedCount
     };
 };
 
