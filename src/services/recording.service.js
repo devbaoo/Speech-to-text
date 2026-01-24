@@ -56,14 +56,8 @@ const getAllRecordings = async (page = 1, limit = 20) => {
   const approvedCount = approvedAgg[0]?.count || 0;
   const approvedDurationSeconds = approvedAgg[0]?.totalDuration || 0;
   const approvedDurationHours = approvedDurationSeconds / 3600;
-
-  // Global stats for recordings that have isApproved = 0 (chờ duyệt)
   const pendingCount = await Recording.countDocuments({ isApproved: 0 });
-
-  // Global stats for recordings that have isApproved = 2 (bị từ chối)
   const rejectedCount = await Recording.countDocuments({ isApproved: 2 });
-  
-  // Calculate totals only from current page (optimize later if needed)
   const mapped = recordings.map(mapRecording);
   const totalDurationSeconds = recordings.reduce((acc, r) => acc + (r.duration || 0), 0);
   const totalDurationHours = totalDurationSeconds / 3600;

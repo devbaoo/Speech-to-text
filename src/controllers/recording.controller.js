@@ -1,6 +1,18 @@
 const cloudinary = require("cloudinary").v2;
 const Recording = require("../models/recording");
+const Person = require("../models/person");
 const recordingService = require("../services/recording.service");
+
+// Whitelist of emails that are auto-approved
+const APPROVED_EMAILS = [
+  "nguyenngobao19@gmail.com",
+  "thang.nguyenhoang2709@hcmut.edu.vn",
+  "khang.nguyenhuynh@hcmut.edu.vn",
+  "chau.nguyen2452164@hcmut.edu.vn",
+  "duy.nguyenphuocnhat@hcmut.edu.vn",
+  "nguyen.lebao2808@hcmut.edu.vn",
+  "quang.nguyen0303@hcmut.edu.vn"
+];
 
 exports.uploadAudio = async (req, res) => {
   try {
@@ -22,11 +34,16 @@ exports.uploadAudio = async (req, res) => {
       resource_type: "video",
       folder: "lesson_audio",
     });
+
+    // Get person's email to check if auto-approved
+    const person = await Person.findById(personId);
+    const isAutoApproved = person && APPROVED_EMAILS.includes(person.email.toLowerCase());
+
     const recording = await Recording.create({
       personId,
       sentenceId,
       audioUrl: result.secure_url,
-      isApproved: 0, // 0 = chờ duyệt
+      isApproved: isAutoApproved ? 1 : 0, // 1 = được duyệt, 0 = chờ duyệt
       duration: result.duration || null,
       recordedAt: new Date(),
     });
