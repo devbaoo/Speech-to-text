@@ -177,8 +177,12 @@ exports.getAll = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    // Support both status and Status (case-insensitive)
+    const status = (req.query.status !== undefined || req.query.Status !== undefined) 
+      ? parseInt(req.query.status || req.query.Status) 
+      : null;
     
-    const result = await sentenceService.getSentences(page, limit);
+    const result = await sentenceService.getSentences(page, limit, status);
     res.json({
       count: result.count,
       totalCount: result.totalCount,
