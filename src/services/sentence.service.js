@@ -43,14 +43,19 @@ exports.createSentence = async (content) => {
 
 
 //Get all sentence with pagination
-exports.getSentences = async (page = 1, limit = 20) => {
+exports.getSentences = async (page = 1, limit = 20, status = null) => {
     const skip = (page - 1) * limit;
-    const rows = await Sentence.find()
+    const filterQuery = {};
+    if (status !== null && status !== undefined) {
+      filterQuery.status = status;
+    }
+    
+    const rows = await Sentence.find(filterQuery)
       .select("content createdAt status createdBy")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
-    const totalCount = await Sentence.countDocuments();
+    const totalCount = await Sentence.countDocuments(filterQuery);
     
     // Global stats for sentences by status
     const pendingCount = await Sentence.countDocuments({ status: 0 }); // Chờ duyệt
