@@ -9,5 +9,6 @@ exports.mapRecording = (row) => {
     RecordedAt: row.recordedAt,
     Email: row.personId?.email || null,
     Content: row.sentenceId?.content || null,
+    SentenceStatus: row.sentenceId?.status || null,
   };
 };
