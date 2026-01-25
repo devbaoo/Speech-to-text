@@ -68,7 +68,7 @@ exports.getAllRecordings = async (req, res) => {
     const limit = Math.min(100, parseInt(req.query.limit) || 20);
     const status = req.query.isApproved !== undefined ? parseInt(req.query.isApproved) : null;
 
-    const result = await recordingService.getAllRecordings(page, limit);
+    const result = await recordingService.getAllRecordings(page, limit, status);
     res.status(200).json({
       count: result.count,
       totalCount: result.totalCount,
