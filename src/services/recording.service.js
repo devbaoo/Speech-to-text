@@ -36,7 +36,7 @@ const getAllRecordings = async (page = 1, limit = 20, status = null) => {
   }
 
   // Get paginated recordings with populated personId and sentenceId
-  const recordings = await Recording.find()
+  const recordings = await Recording.find(filterQuery)
     .populate("personId", "email")
     .populate("sentenceId", "content")
     .sort({ createdAt: -1 })
