@@ -28,9 +28,13 @@ const uploadWavAudio = async (file) => {
 };
 
 // GET ALL 
-const getAllRecordings = async (page = 1, limit = 20) => {
+const getAllRecordings = async (page = 1, limit = 20, status = null) => {
   const skip = (page - 1) * limit;
-  
+   const filterQuery = {};
+  if (status !== null && status !== undefined) {
+    filterQuery.isApproved = status;
+  }
+
   // Get paginated recordings with populated personId and sentenceId
   const recordings = await Recording.find()
     .populate("personId", "email")
@@ -38,9 +42,7 @@ const getAllRecordings = async (page = 1, limit = 20) => {
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit);
-  
-  // Get total count for metadata (using countDocuments for large collections)
-  const totalCount = await Recording.countDocuments();
+    const totalCount = await Recording.countDocuments(filterQuery);
 
   // Global stats for recordings that have isApproved = 1 (đã duyệt)
   const approvedAgg = await Recording.aggregate([

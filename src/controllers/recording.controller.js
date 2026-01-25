@@ -66,6 +66,7 @@ exports.getAllRecordings = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    const status = req.query.isApproved !== undefined ? parseInt(req.query.isApproved) : null;
 
     const result = await recordingService.getAllRecordings(page, limit);
     res.status(200).json({
