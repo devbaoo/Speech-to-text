@@ -104,7 +104,7 @@ exports.createUserSentence = async (content, userName = null) => {
       toInsert.push({
         content: text,
         contentLower: normalizedText,
-        status: 1,
+        status: 0,
         createdBy: userName || null,
       });
     }
