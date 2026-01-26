@@ -332,3 +332,33 @@ exports.approveAllPending = async () => {
 
   return { approved, rejected, totalPending: pending.length };
 };
+
+// Get approved sentences that don't have any recordings
+exports.getApprovedSentencesWithoutRecordings = async (page = 1, limit = 20) => {
+  const skip = (page - 1) * limit;
+  
+  // Find all sentenceIds that have recordings
+  const sentencesWithRecordings = await Recording.distinct("sentenceId");
+  
+  // Find approved sentences (status = 1) that are NOT in the list of sentences with recordings
+  const filterQuery = {
+    status: 1,
+    _id: { $nin: sentencesWithRecordings }
+  };
+  
+  const rows = await Sentence.find(filterQuery)
+    .select("content createdAt status createdBy")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+  
+  const totalCount = await Sentence.countDocuments(filterQuery);
+  
+  return {
+    sentences: rows.map(mapSentence),
+    count: rows.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: page
+  };
+};

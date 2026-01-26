@@ -28,11 +28,39 @@ const uploadWavAudio = async (file) => {
 };
 
 // GET ALL 
-const getAllRecordings = async (page = 1, limit = 20, status = null) => {
+const getAllRecordings = async (page = 1, limit = 20, status = null, email = null) => {
   const skip = (page - 1) * limit;
-   const filterQuery = {};
+  const filterQuery = {};
   if (status !== null && status !== undefined) {
     filterQuery.isApproved = status;
+  }
+
+  // Filter by user email if provided (case-insensitive, partial match)
+  if (email) {
+    const persons = await Person.find({
+      email: { $regex: email, $options: "i" }
+    }).select("_id");
+
+    const personIds = persons.map((p) => p._id);
+    // If no users match the email search, return empty result set
+    if (!personIds.length) {
+      return {
+        recordings: [],
+        count: 0,
+        totalCount: 0,
+        totalPages: 0,
+        currentPage: page,
+        totalDurationSeconds: 0,
+        totalDurationHours: 0,
+        approvedCount: 0,
+        approvedDurationSeconds: 0,
+        approvedDurationHours: 0,
+        pendingCount: 0,
+        rejectedCount: 0,
+      };
+    }
+
+    filterQuery.personId = { $in: personIds };
   }
 
   // Get paginated recordings with populated personId and sentenceId

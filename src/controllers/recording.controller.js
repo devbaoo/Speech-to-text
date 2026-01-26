@@ -70,8 +70,10 @@ exports.getAllRecordings = async (req, res) => {
     const status = (req.query.isApproved !== undefined || req.query.IsApproved !== undefined) 
       ? parseInt(req.query.isApproved || req.query.IsApproved) 
       : null;
+    // Optional search by user email (case-insensitive)
+    const email = req.query.email || req.query.Email || null;
 
-    const result = await recordingService.getAllRecordings(page, limit, status);
+    const result = await recordingService.getAllRecordings(page, limit, status, email);
     res.status(200).json({
       count: result.count,
       totalCount: result.totalCount,

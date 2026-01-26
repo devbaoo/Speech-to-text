@@ -242,3 +242,26 @@ exports.approveAll = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// Get approved sentences without recordings
+exports.getApprovedSentencesWithoutRecordings = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    
+    const result = await sentenceService.getApprovedSentencesWithoutRecordings(page, limit);
+    
+    res.json({
+      count: result.count,
+      totalCount: result.totalCount,
+      totalPages: result.totalPages,
+      currentPage: result.currentPage,
+      data: result.sentences
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false,
+      message: err.message 
+    });
+  }
+};
