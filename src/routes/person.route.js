@@ -7,6 +7,7 @@ router.post("/", controller.createGuestUser);
 router.get("/", controller.getAll);
 router.get("/top-recorders", controller.getTopRecorders);
 router.get("/top-sentence-contributors", controller.getTopSentenceContributors);
+router.get("/top-contributors", controller.getTopContributors);
 router.get("/top-sentence-recorders", controller.getTopSentenceRecorders);
 router.get("/total-contributions", controller.getTotalUserContributions);
 router.post("/login", controller.loginUser);

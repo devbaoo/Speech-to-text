@@ -144,6 +144,26 @@ exports.getTopSentenceContributors = async (req, res) => {
   }
 };
 
+// Top contributors (descending by TotalContributedSentences)
+exports.getTopContributors = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 10);
+
+    const result = await userService.getTopContributors(page, limit);
+
+    res.json({
+      count: result.count,
+      totalCount: result.totalCount,
+      totalPages: result.totalPages,
+      currentPage: result.currentPage,
+      data: result.users
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
 // Get top users by number of distinct sentences they recorded
 exports.getTopSentenceRecorders = async (req, res) => {
   try {
