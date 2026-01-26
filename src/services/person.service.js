@@ -33,14 +33,12 @@ exports.loginUser = async (email) => {
 exports.getUsers = async (page = 1, limit = 20) => {
     const skip = (page - 1) * limit;
     
-    // Get paginated users
-    const rows = await Person.find()
+    // Get all users first (we need to calculate TotalRecordings for all to sort)
+    const allRows = await Person.find()
       .select("email gender role createdAt")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+      .lean();
 
-    const totalCount = await Person.countDocuments();
+    const totalCount = allRows.length;
     
     // Global stats: Tổng Nam, Tổng Nữ
     const totalMale = await Person.countDocuments({ gender: "Male" });
@@ -58,14 +56,12 @@ exports.getUsers = async (page = 1, limit = 20) => {
     ]);
     const totalCompletedSentences = totalCompletedSentencesAgg[0]?.totalCount || 0;
     
-    // Only get stats for current page users
-    const userIds = rows.map(r => r._id);
-    if (!userIds.length) {
+    if (!allRows.length) {
       return {
-        users: rows.map(toPublicUser),
+        users: [],
         count: 0,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
+        totalCount: 0,
+        totalPages: 0,
         currentPage: page,
         totalMale,
         totalFemale,
@@ -73,9 +69,11 @@ exports.getUsers = async (page = 1, limit = 20) => {
       };
     }
 
-    // Get recordings stats for paginated users
+    const allUserIds = allRows.map(r => r._id);
+
+    // Get recordings stats for ALL users
     const recordingStats = await recording.aggregate([
-      { $match: { personId: { $in: userIds }, isApproved: 1 } },
+      { $match: { personId: { $in: allUserIds }, isApproved: 1 } },
       {
         $group: {
           _id: "$personId",
@@ -93,9 +91,9 @@ exports.getUsers = async (page = 1, limit = 20) => {
       };
     });
 
-    // Get sentence contributions for paginated users (chỉ tính câu có status = 1)
+    // Get sentence contributions for ALL users (chỉ tính câu có status = 1)
     const contributionStats = await sentence.aggregate([
-      { $match: { createdBy: { $in: rows.map(r => r.email) }, status: 1 } },
+      { $match: { createdBy: { $in: allRows.map(r => r.email) }, status: 1 } },
       { $group: { _id: "$createdBy", count: { $sum: 1 } } }
     ]);
 
@@ -104,9 +102,25 @@ exports.getUsers = async (page = 1, limit = 20) => {
       contributionMap[stat._id] = stat.count;
     });
 
-    // Get detailed recordings for each user (câu đã làm)
+    // Build users array with TotalRecordings for sorting
+    const allUsersWithStats = allRows.map(u => ({
+      ...u,
+      TotalRecordings: recordingMap[u._id.toString()]?.count || 0,
+      TotalRecordingDuration: recordingMap[u._id.toString()]?.duration || 0,
+      TotalSentenceContributions: contributionMap[u.email] || 0
+    }));
+
+    // Sort by TotalRecordings descending
+    allUsersWithStats.sort((a, b) => b.TotalRecordings - a.TotalRecordings);
+
+    // Now paginate after sorting
+    const paginatedUsers = allUsersWithStats.slice(skip, skip + limit);
+    const paginatedUserIds = paginatedUsers.map(u => u._id);
+    const paginatedUserEmails = paginatedUsers.map(u => u.email);
+
+    // Get detailed recordings for paginated users only (câu đã làm)
     const userRecordingsMap = {};
-    for (const userId of userIds) {
+    for (const userId of paginatedUserIds) {
       const userRecordings = await recording.find({ 
         personId: userId, 
         isApproved: 1 
@@ -124,17 +138,17 @@ exports.getUsers = async (page = 1, limit = 20) => {
       }));
     }
 
-    // Get detailed sentence contributions for each user (câu đóng góp)
+    // Get detailed sentence contributions for paginated users only (câu đóng góp)
     const userContributionsMap = {};
-    for (const row of rows) {
+    for (const email of paginatedUserEmails) {
       const userSentences = await sentence.find({ 
-        createdBy: row.email, 
+        createdBy: email, 
         status: 1 
       })
         .select("content createdAt status")
         .lean();
       
-      userContributionsMap[row.email] = userSentences.map(s => ({
+      userContributionsMap[email] = userSentences.map(s => ({
         SentenceID: s._id,
         Content: s.content,
         Status: s.status,
@@ -142,11 +156,12 @@ exports.getUsers = async (page = 1, limit = 20) => {
       }));
     }
 
-    const users = rows.map(u => ({
+    // Map to final format
+    const users = paginatedUsers.map(u => ({
       ...toPublicUser(u),
-      TotalRecordings: recordingMap[u._id.toString()]?.count || 0,
-      TotalRecordingDuration: recordingMap[u._id.toString()]?.duration || 0,
-      TotalSentenceContributions: contributionMap[u.email] || 0,
+      TotalRecordings: u.TotalRecordings,
+      TotalRecordingDuration: u.TotalRecordingDuration,
+      TotalSentenceContributions: u.TotalSentenceContributions,
       Recordings: userRecordingsMap[u._id.toString()] || [],
       SentenceContributions: userContributionsMap[u.email] || []
     }));
@@ -194,6 +209,106 @@ exports.getTotalUserContributions = async (options = {}) => {
     currentPage: page,
     totalPages: Math.ceil(total / pageLimit),
     pageLimit
+  };
+};
+
+// Top contributors by number of sentences created (createdBy != null), sorted descending by TotalRecordings
+exports.getTopContributors = async (page = 1, limit = 10) => {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 10));
+  const skip = (safePage - 1) * safeLimit;
+
+  const baseMatch = {
+    createdBy: { $ne: null }
+  };
+
+  // Get ALL contributors first (no pagination yet)
+  const allStats = await sentence.aggregate([
+    { $match: baseMatch },
+    {
+      $group: {
+        _id: "$createdBy",
+        TotalContributedSentences: { $sum: 1 }
+      }
+    }
+  ]);
+
+  const totalCount = allStats.length;
+
+  if (totalCount === 0) {
+    return {
+      users: [],
+      count: 0,
+      totalCount: 0,
+      totalPages: 0,
+      currentPage: safePage
+    };
+  }
+
+  const allEmails = allStats.map(s => s._id).filter(Boolean);
+  const allPersons = allEmails.length
+    ? await Person.find({ email: { $in: allEmails } }).select("email gender role createdAt").lean()
+    : [];
+
+  const personByEmail = {};
+  allPersons.forEach(p => {
+    personByEmail[p.email] = p;
+  });
+
+  // Get recording stats for ALL contributors
+  const allPersonIds = allPersons.map(p => p._id);
+  const allRecordingStats = allPersonIds.length
+    ? await recording.aggregate([
+        { $match: { personId: { $in: allPersonIds } } },
+        {
+          $group: {
+            _id: "$personId",
+            TotalRecordings: { $sum: 1 },
+            ApprovedRecordings: {
+              $sum: { $cond: [{ $eq: ["$isApproved", 1] }, 1, 0] }
+            }
+          }
+        }
+      ])
+    : [];
+
+  const recordingMap = {};
+  allRecordingStats.forEach(stat => {
+    recordingMap[stat._id.toString()] = {
+      TotalRecordings: stat.TotalRecordings || 0,
+      ApprovedRecordings: stat.ApprovedRecordings || 0
+    };
+  });
+
+  // Build users array with all stats
+  const allUsers = allStats.map(s => {
+    const email = s._id;
+    const p = personByEmail[email] || null;
+    const recordingInfo = p?._id ? recordingMap[p._id.toString()] : null;
+    return {
+      userId: p?._id || null,
+      email,
+      gender: p?.gender || null,
+      role: p?.role || null,
+      createdAt: p?.createdAt || null,
+      TotalContributedSentences: s.TotalContributedSentences || 0,
+      TotalRecordings: recordingInfo?.TotalRecordings || 0,
+      ApprovedRecordings: recordingInfo?.ApprovedRecordings || 0
+    };
+  });
+
+  // Sort by TotalRecordings descending
+  allUsers.sort((a, b) => b.TotalRecordings - a.TotalRecordings);
+
+  // Now paginate after sorting
+  const paginatedUsers = allUsers.slice(skip, skip + safeLimit);
+
+  return {
+    users: paginatedUsers,
+    count: paginatedUsers.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / safeLimit),
+    currentPage: safePage
   };
 };
 
