@@ -45,8 +45,12 @@ exports.getAll = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, parseInt(req.query.limit) || 20);
-    
-    const result = await userService.getUsers(page, limit);
+
+    // Filter by time (fromDate, toDate) - hỗ trợ datetime (ngày + giờ)
+    const fromDate = req.query.fromDate || null;
+    const toDate = req.query.toDate || null;
+
+    const result = await userService.getUsers(page, limit, { fromDate, toDate });
     const totalContributions = await userService.getTotalUserContributions({
       includeSentences: false,
       limit,
@@ -57,6 +61,10 @@ exports.getAll = async (req, res) => {
       totalCount: result.totalCount,
       totalPages: result.totalPages,
       currentPage: result.currentPage,
+      filter: {
+        fromDate: req.query.fromDate || null,
+        toDate: req.query.toDate || null
+      },
       totalContributedSentences: totalContributions.totalContributed,
       totalMale: result.totalMale,
       totalFemale: result.totalFemale,

@@ -30,9 +30,19 @@ exports.loginUser = async (email) => {
   return user;
 };
 
-exports.getUsers = async (page = 1, limit = 20) => {
+exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
     const skip = (page - 1) * limit;
-    
+    const { fromDate, toDate } = filter;
+
+    // Build date query for recordings filter (hỗ trợ datetime đầy đủ)
+    const dateQuery = {};
+    if (fromDate) {
+      dateQuery.$gte = new Date(fromDate);
+    }
+    if (toDate) {
+      dateQuery.$lte = new Date(toDate);
+    }
+
     // Get all users first (we need to calculate TotalRecordings for all to sort)
     const allRows = await Person.find()
       .select("email gender role createdAt")
@@ -72,8 +82,14 @@ exports.getUsers = async (page = 1, limit = 20) => {
     const allUserIds = allRows.map(r => r._id);
 
     // Get recordings stats for ALL users (tổng recordings với isApproved = 0 và 1)
+    // Áp dụng filter theo recordedAt nếu có fromDate/toDate
+    const recordingMatch = { personId: { $in: allUserIds }, isApproved: { $in: [0, 1] } };
+    if (Object.keys(dateQuery).length) {
+      recordingMatch.recordedAt = dateQuery;
+    }
+
     const recordingStats = await recording.aggregate([
-      { $match: { personId: { $in: allUserIds }, isApproved: { $in: [0, 1] } } },
+      { $match: recordingMatch },
       {
         $group: {
           _id: "$personId",
@@ -125,17 +141,22 @@ exports.getUsers = async (page = 1, limit = 20) => {
     const paginatedUserEmails = paginatedUsers.map(u => u.email);
 
     // Get detailed recordings for paginated users only (câu đã làm, cả isApproved 0 và 1)
+    // Áp dụng filter theo recordedAt nếu có fromDate/toDate
     const userRecordingsMap = {};
     for (const userId of paginatedUserIds) {
-      const userRecordings = await recording.find({ 
-        personId: userId, 
+      const recordingQuery = {
+        personId: userId,
         isApproved: { $in: [0, 1] }
-      })
+      };
+      if (Object.keys(dateQuery).length) {
+        recordingQuery.recordedAt = dateQuery;
+      }
+      const userRecordings = await recording.find(recordingQuery)
         .populate("sentenceId", "content")
         .select("sentenceId duration recordedAt audioUrl isApproved")
         .sort({ recordedAt: -1 })
         .lean();
-      
+
       userRecordingsMap[userId.toString()] = userRecordings.map(r => ({
         SentenceID: r.sentenceId?._id || r.sentenceId,
         Content: r.sentenceId?.content || null,
