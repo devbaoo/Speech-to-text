@@ -71,14 +71,16 @@ exports.getUsers = async (page = 1, limit = 20) => {
 
     const allUserIds = allRows.map(r => r._id);
 
-    // Get recordings stats for ALL users
+    // Get recordings stats for ALL users (tổng recordings với isApproved = 0 và 1)
     const recordingStats = await recording.aggregate([
-      { $match: { personId: { $in: allUserIds }, isApproved: 1 } },
+      { $match: { personId: { $in: allUserIds }, isApproved: { $in: [0, 1] } } },
       {
         $group: {
           _id: "$personId",
           recordingCount: { $sum: 1 },
-          totalDuration: { $sum: { $ifNull: ["$duration", 0] } }
+          totalDuration: { $sum: { $ifNull: ["$duration", 0] } },
+          approvedCount: { $sum: { $cond: [{ $eq: ["$isApproved", 1] }, 1, 0] } },
+          pendingCount: { $sum: { $cond: [{ $eq: ["$isApproved", 0] }, 1, 0] } }
         }
       }
     ]);
@@ -87,7 +89,9 @@ exports.getUsers = async (page = 1, limit = 20) => {
     recordingStats.forEach(stat => {
       recordingMap[stat._id.toString()] = {
         count: stat.recordingCount,
-        duration: stat.totalDuration
+        duration: stat.totalDuration,
+        approvedCount: stat.approvedCount,
+        pendingCount: stat.pendingCount
       };
     });
 
@@ -107,6 +111,8 @@ exports.getUsers = async (page = 1, limit = 20) => {
       ...u,
       TotalRecordings: recordingMap[u._id.toString()]?.count || 0,
       TotalRecordingDuration: recordingMap[u._id.toString()]?.duration || 0,
+      ApprovedRecordings: recordingMap[u._id.toString()]?.approvedCount || 0,
+      PendingRecordings: recordingMap[u._id.toString()]?.pendingCount || 0,
       TotalSentenceContributions: contributionMap[u.email] || 0
     }));
 
@@ -118,15 +124,16 @@ exports.getUsers = async (page = 1, limit = 20) => {
     const paginatedUserIds = paginatedUsers.map(u => u._id);
     const paginatedUserEmails = paginatedUsers.map(u => u.email);
 
-    // Get detailed recordings for paginated users only (câu đã làm)
+    // Get detailed recordings for paginated users only (câu đã làm, cả isApproved 0 và 1)
     const userRecordingsMap = {};
     for (const userId of paginatedUserIds) {
       const userRecordings = await recording.find({ 
         personId: userId, 
-        isApproved: 1 
+        isApproved: { $in: [0, 1] }
       })
         .populate("sentenceId", "content")
-        .select("sentenceId duration recordedAt audioUrl")
+        .select("sentenceId duration recordedAt audioUrl isApproved")
+        .sort({ recordedAt: -1 })
         .lean();
       
       userRecordingsMap[userId.toString()] = userRecordings.map(r => ({
@@ -134,7 +141,8 @@ exports.getUsers = async (page = 1, limit = 20) => {
         Content: r.sentenceId?.content || null,
         Duration: r.duration || null,
         RecordedAt: r.recordedAt,
-        AudioUrl: r.audioUrl || null
+        AudioUrl: r.audioUrl || null,
+        IsApproved: r.isApproved
       }));
     }
 
@@ -161,6 +169,8 @@ exports.getUsers = async (page = 1, limit = 20) => {
       ...toPublicUser(u),
       TotalRecordings: u.TotalRecordings,
       TotalRecordingDuration: u.TotalRecordingDuration,
+      ApprovedRecordings: u.ApprovedRecordings,
+      PendingRecordings: u.PendingRecordings,
       TotalSentenceContributions: u.TotalSentenceContributions,
       Recordings: userRecordingsMap[u._id.toString()] || [],
       SentenceContributions: userContributionsMap[u.email] || []
