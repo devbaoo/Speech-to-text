@@ -219,3 +219,29 @@ exports.getUserById = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+// Approve all recordings by email (with optional date filter)
+exports.approveRecordingsByEmail = async (req, res) => {
+  try {
+    const { email, fromDate, toDate } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const result = await userService.approveRecordingsByEmail(email, { fromDate, toDate });
+
+    res.json({
+      message: `Approved ${result.modifiedCount} recordings successfully`,
+      email,
+      filter: {
+        fromDate: fromDate || null,
+        toDate: toDate || null
+      },
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};

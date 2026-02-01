@@ -11,6 +11,7 @@ router.get("/top-contributors", controller.getTopContributors);
 router.get("/top-sentence-recorders", controller.getTopSentenceRecorders);
 router.get("/total-contributions", controller.getTotalUserContributions);
 router.post("/login", controller.loginUser);
+router.post("/approve-recordings", controller.approveRecordingsByEmail);
 router.get("/:id", controller.getUserById);
 router.put("/:id", verifyAdminOrManager, controller.updateUser);
 router.delete("/:id", verifyAdminOrManager, controller.deleteUser);

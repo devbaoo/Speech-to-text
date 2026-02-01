@@ -627,3 +627,38 @@ exports.getUserById = async (userId) => {
     CreatedSentences: createdList
   };
 };
+
+// Approve all recordings by email (with optional date filter)
+exports.approveRecordingsByEmail = async (email, filter = {}) => {
+  if (!email) throw new Error("Email is required");
+
+  // Find user by email to get personId
+  const user = await Person.findOne({ email: email.toLowerCase() });
+  if (!user) throw new Error("User not found");
+
+  const { fromDate, toDate } = filter;
+
+  // Build query to find recordings
+  const query = {
+    personId: user._id,
+    isApproved: 0 // Chỉ duyệt recordings đang chờ duyệt
+  };
+
+  // Add date filter if provided
+  if (fromDate || toDate) {
+    query.recordedAt = {};
+    if (fromDate) {
+      query.recordedAt.$gte = new Date(fromDate);
+    }
+    if (toDate) {
+      query.recordedAt.$lte = new Date(toDate);
+    }
+  }
+
+  // Update all matching recordings to isApproved = 1
+  const result = await recording.updateMany(query, {
+    $set: { isApproved: 1 }
+  });
+
+  return result;
+};
