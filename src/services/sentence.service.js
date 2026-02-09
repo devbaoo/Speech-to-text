@@ -293,10 +293,6 @@ exports.updateSentence = async (id, data) => {
     throw new Error("Sentence không tồn tại");
   }
 
-  if (existingSentence.status === 2) {
-    throw new Error("Sentence này đã có recording được duyệt, không thể chỉnh sửa");
-  }
-
   const sentence = await Sentence.findByIdAndUpdate(
     id,
     { content: data.content },
