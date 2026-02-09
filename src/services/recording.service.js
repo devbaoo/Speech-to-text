@@ -175,10 +175,45 @@ const getRecordingsByStatus = async (status) => {
   return recordings.map(mapRecording);
 };
 
+// DELETE recording
+const deleteRecording = async (id) => {
+  const recording = await Recording.findById(id);
+  if (!recording) throw new Error("Recording not found");
+
+  // Xóa file audio từ Cloudinary (nếu có audioUrl)
+  if (recording.audioUrl) {
+    try {
+      // Trích xuất public_id từ URL
+      const urlParts = recording.audioUrl.split("/");
+      const publicIdWithExtension = urlParts.slice(-1)[0];
+      const publicId = publicIdWithExtension.split(".")[0];
+      // Thêm folder path nếu cần
+      const fullPublicId = `lesson_audio/${publicId}`;
+      await cloudinary.uploader.destroy(fullPublicId, { resource_type: "video" });
+    } catch (error) {
+      console.error("Lỗi khi xóa file từ Cloudinary:", error.message);
+    }
+  }
+
+  // Lưu sentenceId trước khi xóa recording
+  const sentenceId = recording.sentenceId;
+
+  // Xóa recording
+  await Recording.findByIdAndDelete(id);
+
+  // Xóa sentence tương ứng (nếu có)
+  if (sentenceId) {
+    await Sentence.findByIdAndDelete(sentenceId);
+  }
+
+  return { message: "Recording và sentence đã được xóa thành công" };
+};
+
 module.exports = {
   uploadWavAudio,
   getAllRecordings,
   approveRecording,
   rejectRecording,
   getRecordingsByStatus,
+  deleteRecording,
 };
