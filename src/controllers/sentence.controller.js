@@ -97,9 +97,11 @@ exports.downloadSentences = async (req, res) => {
           responseType: "stream"
         });
 
-        // place all audio files directly under audio/ with unique filename by recording id
+        // place all audio files under audio/ with format: {SentenceID}_{RecordingID}.wav
+        const sentenceId = item.sentence.SentenceID;
+        const recordingId = rec.RecordingID;
         archive.append(audioStream.data, {
-          name: `audio/${rec.RecordingID}.wav`
+          name: `audio/${sentenceId}_${recordingId}.wav`
         });
       }
     }
