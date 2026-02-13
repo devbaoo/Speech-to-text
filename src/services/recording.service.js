@@ -402,8 +402,8 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         const sentenceId = sentence._id.toString();
         const recordingId = recording._id.toString();
 
-        // Add .txt file with sentence ID only in text/ folder
-        archive.append(sentenceId, {
+        // Add .txt file with sentence content in text/ folder
+        archive.append(sentence.content, {
           name: `${rootFolder}/text/${sentenceId}.txt`
         });
 
