@@ -50,7 +50,10 @@ exports.getAll = async (req, res) => {
     const fromDate = req.query.fromDate || null;
     const toDate = req.query.toDate || null;
 
-    const result = await userService.getUsers(page, limit, { fromDate, toDate });
+    // Filter by email (case-insensitive)
+    const email = req.query.email || null;
+
+    const result = await userService.getUsers(page, limit, { fromDate, toDate, email });
     const totalContributions = await userService.getTotalUserContributions({
       includeSentences: false,
       limit,
@@ -63,7 +66,8 @@ exports.getAll = async (req, res) => {
       currentPage: result.currentPage,
       filter: {
         fromDate: req.query.fromDate || null,
-        toDate: req.query.toDate || null
+        toDate: req.query.toDate || null,
+        email: req.query.email || null
       },
       totalContributedSentences: totalContributions.totalContributed,
       totalMale: result.totalMale,

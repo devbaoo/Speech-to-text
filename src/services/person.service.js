@@ -32,7 +32,7 @@ exports.loginUser = async (email) => {
 
 exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
     const skip = (page - 1) * limit;
-    const { fromDate, toDate } = filter;
+    const { fromDate, toDate, email } = filter;
 
     // Build date query for recordings filter (hỗ trợ datetime đầy đủ)
     const dateQuery = {};
@@ -43,8 +43,16 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
       dateQuery.$lte = new Date(toDate);
     }
 
+    // Build email query filter
+    const emailQuery = {};
+    if (email) {
+      emailQuery.$regex = email.toLowerCase();
+      emailQuery.$options = "i"; // case-insensitive
+    }
+
     // Get all users first (we need to calculate TotalRecordings for all to sort)
-    const allRows = await Person.find()
+    const personFindQuery = Object.keys(emailQuery).length ? { email: emailQuery } : {};
+    const allRows = await Person.find(personFindQuery)
       .select("email gender role createdAt")
       .lean();
 
