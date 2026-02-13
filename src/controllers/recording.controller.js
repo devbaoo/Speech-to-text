@@ -158,19 +158,35 @@ exports.deleteDuplicateRecordings = async (req, res) => {
 // DOWNLOAD RECORDINGS BY SPEAKER (as .txt + .wav files in zip)
 exports.downloadRecordingsBySpeaker = async (req, res) => {
   try {
-    const { personId, dateFrom, dateTo, isApproved } = req.query;
+    // Support both "emails" (comma-separated) and "personId" (single, for backward compatibility)
+    let { emails, personId, dateFrom, dateTo, isApproved } = req.query;
     
-    if (!personId) {
+    // If personId is provided (single user - backward compatibility), convert to array
+    if (personId && !emails) {
+      emails = personId;
+    }
+
+    if (!emails) {
       return res.status(400).json({
         success: false,
-        message: "Thiếu personId hoặc email"
+        message: "Thiếu email hoặc emails (comma-separated)"
+      });
+    }
+
+    // Parse comma-separated emails into array
+    const emailList = emails.split(",").map(e => e.trim()).filter(e => e);
+    
+    if (emailList.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Danh sách email trống"
       });
     }
 
     const approvalStatus = isApproved ? parseInt(isApproved) : 1; // Default to approved (1)
 
     const { archive, fileName, recordingCount } = await recordingService.downloadRecordingsBySpeaker(
-      personId,
+      emailList,
       dateFrom,
       dateTo,
       approvalStatus

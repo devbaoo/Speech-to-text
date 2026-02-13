@@ -286,26 +286,16 @@ const deleteDuplicateRecordings = async () => {
 };
 
 // DOWNLOAD RECORDINGS BY SPEAKER (as .txt + .wav files in zip)
-const downloadRecordingsBySpeaker = async (personIdOrEmail, dateFrom, dateTo, isApproved = 1) => {
+// Support single email or array of emails (comma-separated)
+const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved = 1) => {
   const axios = require("axios");
   const path = require("path");
   const archiver = require("archiver");
   const { Readable } = require("stream");
   
   try {
-    // Find person by ID or email
-    let personId = personIdOrEmail;
-    if (!personIdOrEmail.match(/^[0-9a-fA-F]{24}$/)) {
-      // It's an email, find the person
-      const person = await Person.findOne({ email: personIdOrEmail.toLowerCase() });
-      if (!person) {
-        throw new Error("Người dùng không tồn tại");
-      }
-      personId = person._id;
-    }
-
-    // Build query filter
-    const filterQuery = { personId, isApproved };
+    // Normalize to array
+    const emailList = Array.isArray(emails) ? emails : [emails];
     
     // Helper function to parse date/datetime string
     const parseDateTime = (dateStr, isEndOfDay = false) => {
@@ -335,56 +325,111 @@ const downloadRecordingsBySpeaker = async (personIdOrEmail, dateFrom, dateTo, is
       return date;
     };
     
-    // Add date filter if provided
+    // Build date filter
+    const dateFilter = {};
     if (dateFrom || dateTo) {
-      filterQuery.recordedAt = {};
       if (dateFrom) {
-        filterQuery.recordedAt.$gte = parseDateTime(dateFrom, false);
+        dateFilter.$gte = parseDateTime(dateFrom, false);
       }
       if (dateTo) {
-        filterQuery.recordedAt.$lte = parseDateTime(dateTo, true);
+        dateFilter.$lte = parseDateTime(dateTo, true);
       }
-    }
-
-    // Get recordings with sentence content
-    const recordings = await Recording.find(filterQuery)
-      .populate("sentenceId", "content")
-      .sort({ recordedAt: -1 });
-
-    if (recordings.length === 0) {
-      throw new Error("Không tìm thấy recordings nào cho người dùng này");
     }
 
     // Create a readable stream that acts as the zip archive
     const archive = archiver("zip", { zlib: { level: 9 } });
 
-    for (let i = 0; i < recordings.length; i++) {
-      const recording = recordings[i];
-      const sentence = recording.sentenceId;
+    let totalRecordingCount = 0;
+    let userIndex = 0;
+    let firstRootFolder = null;
+
+    // Process each email
+    for (const emailOrId of emailList) {
+      // Find person by ID or email
+      let personId = emailOrId;
+      let personEmail = emailOrId;
       
-      if (!sentence || !sentence.content) {
+      // Check if it's a valid MongoDB ObjectId
+      const isObjectId = emailOrId.match(/^[0-9a-fA-F]{24}$/);
+      
+      if (!isObjectId) {
+        // It's an email, find the person
+        const person = await Person.findOne({ email: emailOrId.toLowerCase() });
+        if (!person) {
+          console.warn(`Người dùng không tồn tại: ${emailOrId}`);
+          continue;
+        }
+        personId = person._id;
+        personEmail = person.email;
+      }
+
+      // Build query filter for this user
+      const filterQuery = { personId, isApproved };
+      if (Object.keys(dateFilter).length > 0) {
+        filterQuery.recordedAt = dateFilter;
+      }
+
+      // Get recordings with sentence content
+      const recordings = await Recording.find(filterQuery)
+        .populate("sentenceId", "content")
+        .sort({ recordedAt: -1 });
+
+      if (recordings.length === 0) {
+        console.warn(`Không tìm thấy recordings cho: ${personEmail}`);
         continue;
       }
 
-      const fileName = `recording_${i + 1}`;
+      // Create folder name from email (sanitize)
+      const folderName = personEmail.replace(/[@.]/g, "_");
+      const now = new Date();
+      const dateTimeStr = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const rootFolder = `recordings_${folderName}_${dateTimeStr}`;
+      
+      // Save first root folder for zip filename
+      if (firstRootFolder === null) {
+        firstRootFolder = rootFolder;
+      }
+      
+      // Add recordings to archive in folder
+      for (let i = 0; i < recordings.length; i++) {
+        const recording = recordings[i];
+        const sentence = recording.sentenceId;
+        
+        if (!sentence || !sentence.content) {
+          continue;
+        }
 
-      // Add .txt file with sentence content
-      const txtContent = sentence.content;
-      archive.append(txtContent, { name: `${fileName}.txt` });
+        const sentenceId = sentence._id.toString();
+        const recordingId = recording._id.toString();
 
-      // Download and add .wav file from Cloudinary (if audioUrl exists)
-      if (recording.audioUrl) {
-        try {
-          const response = await axios.get(recording.audioUrl, {
-            responseType: "arraybuffer",
-            timeout: 30000
-          });
-          archive.append(response.data, { name: `${fileName}.wav` });
-        } catch (error) {
-          console.error(`Lỗi khi tải file audio ${fileName}:`, error.message);
-          // Continue with next recording even if one fails
+        // Add .txt file with sentence ID only in text/ folder
+        archive.append(sentenceId, {
+          name: `${rootFolder}/text/${sentenceId}.txt`
+        });
+
+        // Download and add .wav file from Cloudinary in audio/ folder
+        if (recording.audioUrl) {
+          try {
+            const response = await axios.get(recording.audioUrl, {
+              responseType: "arraybuffer",
+              timeout: 30000
+            });
+            archive.append(response.data, {
+              name: `${rootFolder}/audio/${sentenceId}_${recordingId}.wav`
+            });
+          } catch (error) {
+            console.error(`Lỗi khi tải file audio ${sentenceId}_${recordingId}:`, error.message);
+            // Continue with next recording even if one fails
+          }
         }
       }
+
+      totalRecordingCount += recordings.length;
+      userIndex++;
+    }
+
+    if (totalRecordingCount === 0) {
+      throw new Error("Không tìm thấy recordings nào cho người dùng nào");
     }
 
     // Finalize the archive
@@ -392,8 +437,8 @@ const downloadRecordingsBySpeaker = async (personIdOrEmail, dateFrom, dateTo, is
 
     return {
       archive,
-      fileName: `recordings_${new Date().toISOString().split("T")[0]}.zip`,
-      recordingCount: recordings.length
+      fileName: `${firstRootFolder}.zip`,
+      recordingCount: totalRecordingCount
     };
   } catch (error) {
     throw error;
