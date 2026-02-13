@@ -209,6 +209,197 @@ const deleteRecording = async (id) => {
   return { message: "Recording và sentence đã được xóa thành công" };
 };
 
+// DELETE DUPLICATE RECORDINGS (recordings thừa cho cùng 1 sentence)
+const deleteDuplicateRecordings = async () => {
+  try {
+    // Tìm tất cả sentences có 2 hoặc nhiều recordings
+    const sentencesWithDuplicates = await Recording.aggregate([
+      {
+        $group: {
+          _id: "$sentenceId",
+          count: { $sum: 1 },
+          recordingIds: { $push: "$_id" }
+        }
+      },
+      {
+        $match: { count: { $gte: 2 } }
+      }
+    ]);
+
+    if (sentencesWithDuplicates.length === 0) {
+      return {
+        success: true,
+        message: "Không có sentence nào có recordings thừa",
+        deletedCount: 0,
+        sentencesProcessed: 0
+      };
+    }
+
+    let totalDeletedCount = 0;
+    let problemsWithCloudinary = [];
+
+    // Xóa tất cả recordings cho các sentences có duplicates
+    for (const item of sentencesWithDuplicates) {
+      const sentenceId = item._id;
+      const recordingIds = item.recordingIds;
+
+      // Lấy tất cả recordings của sentence này
+      const recordings = await Recording.find({ _id: { $in: recordingIds } });
+
+      // Xóa audio files từ Cloudinary
+      for (const recording of recordings) {
+        if (recording.audioUrl) {
+          try {
+            const urlParts = recording.audioUrl.split("/");
+            const publicIdWithExtension = urlParts.slice(-1)[0];
+            const publicId = publicIdWithExtension.split(".")[0];
+            const fullPublicId = `lesson_audio/${publicId}`;
+            await cloudinary.uploader.destroy(fullPublicId, { resource_type: "video" });
+          } catch (error) {
+            console.error("Lỗi khi xóa file từ Cloudinary:", error.message);
+            problemsWithCloudinary.push({
+              recordingId: recording._id,
+              error: error.message
+            });
+          }
+        }
+      }
+
+      // Xóa tất cả recordings
+      const deleteResult = await Recording.deleteMany({ _id: { $in: recordingIds } });
+      totalDeletedCount += deleteResult.deletedCount;
+
+      // Cập nhật sentence status về 1
+      await Sentence.findByIdAndUpdate(sentenceId, { status: 1 });
+    }
+
+    return {
+      success: true,
+      message: "Xóa recordings thừa thành công",
+      sentencesProcessed: sentencesWithDuplicates.length,
+      deletedCount: totalDeletedCount,
+      cloudinaryProblems: problemsWithCloudinary.length > 0 ? problemsWithCloudinary : null
+    };
+  } catch (error) {
+    throw error;
+  }
+};
+
+// DOWNLOAD RECORDINGS BY SPEAKER (as .txt + .wav files in zip)
+const downloadRecordingsBySpeaker = async (personIdOrEmail, dateFrom, dateTo, isApproved = 1) => {
+  const axios = require("axios");
+  const path = require("path");
+  const archiver = require("archiver");
+  const { Readable } = require("stream");
+  
+  try {
+    // Find person by ID or email
+    let personId = personIdOrEmail;
+    if (!personIdOrEmail.match(/^[0-9a-fA-F]{24}$/)) {
+      // It's an email, find the person
+      const person = await Person.findOne({ email: personIdOrEmail.toLowerCase() });
+      if (!person) {
+        throw new Error("Người dùng không tồn tại");
+      }
+      personId = person._id;
+    }
+
+    // Build query filter
+    const filterQuery = { personId, isApproved };
+    
+    // Helper function to parse date/datetime string
+    const parseDateTime = (dateStr, isEndOfDay = false) => {
+      if (!dateStr) return null;
+      
+      // Support formats:
+      // - YYYY-MM-DD (mặc định 00:00:00, hoặc 23:59:59 nếu isEndOfDay)
+      // - YYYY-MM-DD HH:mm
+      // - YYYY-MM-DD HH:mm:ss
+      // - YYYY-MM-DDTHH:mm:ss
+      
+      const date = new Date(dateStr);
+      
+      if (isNaN(date.getTime())) {
+        throw new Error(`Invalid date format: ${dateStr}. Use YYYY-MM-DD or YYYY-MM-DD HH:mm:ss`);
+      }
+      
+      // If only date is provided (no time), set time accordingly
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/) && !dateStr.includes(' ') && !dateStr.includes('T')) {
+        if (isEndOfDay) {
+          date.setHours(23, 59, 59, 999);
+        } else {
+          date.setHours(0, 0, 0, 0);
+        }
+      }
+      
+      return date;
+    };
+    
+    // Add date filter if provided
+    if (dateFrom || dateTo) {
+      filterQuery.recordedAt = {};
+      if (dateFrom) {
+        filterQuery.recordedAt.$gte = parseDateTime(dateFrom, false);
+      }
+      if (dateTo) {
+        filterQuery.recordedAt.$lte = parseDateTime(dateTo, true);
+      }
+    }
+
+    // Get recordings with sentence content
+    const recordings = await Recording.find(filterQuery)
+      .populate("sentenceId", "content")
+      .sort({ recordedAt: -1 });
+
+    if (recordings.length === 0) {
+      throw new Error("Không tìm thấy recordings nào cho người dùng này");
+    }
+
+    // Create a readable stream that acts as the zip archive
+    const archive = archiver("zip", { zlib: { level: 9 } });
+
+    for (let i = 0; i < recordings.length; i++) {
+      const recording = recordings[i];
+      const sentence = recording.sentenceId;
+      
+      if (!sentence || !sentence.content) {
+        continue;
+      }
+
+      const fileName = `recording_${i + 1}`;
+
+      // Add .txt file with sentence content
+      const txtContent = sentence.content;
+      archive.append(txtContent, { name: `${fileName}.txt` });
+
+      // Download and add .wav file from Cloudinary (if audioUrl exists)
+      if (recording.audioUrl) {
+        try {
+          const response = await axios.get(recording.audioUrl, {
+            responseType: "arraybuffer",
+            timeout: 30000
+          });
+          archive.append(response.data, { name: `${fileName}.wav` });
+        } catch (error) {
+          console.error(`Lỗi khi tải file audio ${fileName}:`, error.message);
+          // Continue with next recording even if one fails
+        }
+      }
+    }
+
+    // Finalize the archive
+    archive.finalize();
+
+    return {
+      archive,
+      fileName: `recordings_${new Date().toISOString().split("T")[0]}.zip`,
+      recordingCount: recordings.length
+    };
+  } catch (error) {
+    throw error;
+  }
+};
+
 module.exports = {
   uploadWavAudio,
   getAllRecordings,
@@ -216,4 +407,6 @@ module.exports = {
   rejectRecording,
   getRecordingsByStatus,
   deleteRecording,
+  deleteDuplicateRecordings,
+  downloadRecordingsBySpeaker,
 };

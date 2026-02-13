@@ -5,6 +5,7 @@ const { verifyAdminOrManager } = require("../middlewares/admin.middleware");
 
 router.post("/", controller.createGuestUser);
 router.get("/", controller.getAll);
+router.get("/search/by-email", controller.searchUserByEmail);
 router.get("/top-recorders", controller.getTopRecorders);
 router.get("/top-sentence-contributors", controller.getTopSentenceContributors);
 router.get("/top-contributors", controller.getTopContributors);

@@ -662,3 +662,71 @@ exports.approveRecordingsByEmail = async (email, filter = {}) => {
 
   return result;
 };
+
+// Search users by email (case-insensitive, partial match)
+exports.searchUserByEmail = async (email, page = 1, limit = 20) => {
+  if (!email || email.trim() === "") {
+    throw new Error("Email is required");
+  }
+
+  const skip = (page - 1) * limit;
+  
+  // Case-insensitive partial match
+  const query = {
+    email: { $regex: email.trim(), $options: "i" }
+  };
+
+  const users = await Person.find(query)
+    .select("email gender role createdAt")
+    .skip(skip)
+    .limit(limit)
+    .sort({ createdAt: -1 });
+
+  const totalCount = await Person.countDocuments(query);
+
+  // Get recording stats for matched users
+  const userIds = users.map(u => u._id);
+  
+  const recordingStats = await recording.aggregate([
+    { $match: { personId: { $in: userIds }, isApproved: { $in: [0, 1] } } },
+    {
+      $group: {
+        _id: "$personId",
+        recordingCount: { $sum: 1 },
+        totalDuration: { $sum: { $ifNull: ["$duration", 0] } },
+        approvedCount: { $sum: { $cond: [{ $eq: ["$isApproved", 1] }, 1, 0] } },
+        pendingCount: { $sum: { $cond: [{ $eq: ["$isApproved", 0] }, 1, 0] } }
+      }
+    }
+  ]);
+
+  const statsMap = {};
+  recordingStats.forEach(stat => {
+    statsMap[stat._id.toString()] = stat;
+  });
+
+  // Map result
+  const result = users.map(user => {
+    const stats = statsMap[user._id.toString()] || {};
+    return {
+      id: user._id,
+      email: user.email,
+      gender: user.gender,
+      role: user.role,
+      createdAt: user.createdAt,
+      recordingCount: stats.recordingCount || 0,
+      approvedCount: stats.approvedCount || 0,
+      pendingCount: stats.pendingCount || 0,
+      totalDuration: stats.totalDuration || 0
+    };
+  });
+
+  return {
+    users: result,
+    count: result.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: page,
+    searchEmail: email.trim()
+  };
+};

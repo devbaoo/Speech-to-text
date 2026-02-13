@@ -12,8 +12,10 @@ router.post(
 );
 router.get("/", recordingController.getAllRecordings);
 router.get("/status/:status", recordingController.getRecordingsByStatus);
+router.get("/download/:personId",verifyAdminOrManager, recordingController.downloadRecordingsBySpeaker);
 router.patch("/:id/approve", verifyAdminOrManager, recordingController.approveRecording);
 router.patch("/:id/reject", verifyAdminOrManager, recordingController.rejectRecording);
 router.delete("/:id", verifyAdminOrManager, recordingController.deleteRecording);
+router.post("/admin/delete-duplicates", verifyAdminOrManager, recordingController.deleteDuplicateRecordings);
 
 module.exports = router;
