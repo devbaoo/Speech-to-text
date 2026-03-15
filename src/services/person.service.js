@@ -105,7 +105,7 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
           totalDuration: { $sum: { $ifNull: ["$duration", 0] } },
           approvedCount: { $sum: { $cond: [{ $eq: ["$isApproved", 1] }, 1, 0] } },
           pendingCount: { $sum: { $cond: [{ $eq: ["$isApproved", 0] }, 1, 0] } },
-          pendingDuration: { $sum: { $cond: [{ $eq: ["$isApproved", 0] }, { $ifNull: ["$duration", 0] }, 0] } }
+          approvedDuration: { $sum: { $cond: [{ $eq: ["$isApproved", 1] }, { $ifNull: ["$duration", 0] }, 0] } }
         }
       }
     ]);
@@ -117,7 +117,7 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
         duration: stat.totalDuration,
         approvedCount: stat.approvedCount,
         pendingCount: stat.pendingCount,
-        pendingDuration: stat.pendingDuration
+        approvedDuration: stat.approvedDuration
       };
     });
 
@@ -139,7 +139,7 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
       TotalRecordingDuration: recordingMap[u._id.toString()]?.duration || 0,
       ApprovedRecordings: recordingMap[u._id.toString()]?.approvedCount || 0,
       PendingRecordings: recordingMap[u._id.toString()]?.pendingCount || 0,
-      TotalPendingRecordingDuration: recordingMap[u._id.toString()]?.pendingDuration || 0,
+      TotalApprovedRecordingDuration: recordingMap[u._id.toString()]?.approvedDuration || 0,
       TotalSentenceContributions: contributionMap[u.email] || 0
     }));
 
@@ -203,7 +203,7 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
       TotalRecordingDuration: u.TotalRecordingDuration,
       ApprovedRecordings: u.ApprovedRecordings,
       PendingRecordings: u.PendingRecordings,
-      TotalPendingRecordingDuration: u.TotalPendingRecordingDuration,
+      TotalApprovedRecordingDuration: u.TotalApprovedRecordingDuration,
       TotalSentenceContributions: u.TotalSentenceContributions,
       Recordings: userRecordingsMap[u._id.toString()] || [],
       SentenceContributions: userContributionsMap[u.email] || []
