@@ -104,7 +104,8 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
           recordingCount: { $sum: 1 },
           totalDuration: { $sum: { $ifNull: ["$duration", 0] } },
           approvedCount: { $sum: { $cond: [{ $eq: ["$isApproved", 1] }, 1, 0] } },
-          pendingCount: { $sum: { $cond: [{ $eq: ["$isApproved", 0] }, 1, 0] } }
+          pendingCount: { $sum: { $cond: [{ $eq: ["$isApproved", 0] }, 1, 0] } },
+          pendingDuration: { $sum: { $cond: [{ $eq: ["$isApproved", 0] }, { $ifNull: ["$duration", 0] }, 0] } }
         }
       }
     ]);
@@ -115,7 +116,8 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
         count: stat.recordingCount,
         duration: stat.totalDuration,
         approvedCount: stat.approvedCount,
-        pendingCount: stat.pendingCount
+        pendingCount: stat.pendingCount,
+        pendingDuration: stat.pendingDuration
       };
     });
 
@@ -137,6 +139,7 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
       TotalRecordingDuration: recordingMap[u._id.toString()]?.duration || 0,
       ApprovedRecordings: recordingMap[u._id.toString()]?.approvedCount || 0,
       PendingRecordings: recordingMap[u._id.toString()]?.pendingCount || 0,
+      TotalPendingRecordingDuration: recordingMap[u._id.toString()]?.pendingDuration || 0,
       TotalSentenceContributions: contributionMap[u.email] || 0
     }));
 
@@ -200,6 +203,7 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
       TotalRecordingDuration: u.TotalRecordingDuration,
       ApprovedRecordings: u.ApprovedRecordings,
       PendingRecordings: u.PendingRecordings,
+      TotalPendingRecordingDuration: u.TotalPendingRecordingDuration,
       TotalSentenceContributions: u.TotalSentenceContributions,
       Recordings: userRecordingsMap[u._id.toString()] || [],
       SentenceContributions: userContributionsMap[u.email] || []
