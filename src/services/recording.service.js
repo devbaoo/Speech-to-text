@@ -287,24 +287,71 @@ const deleteDuplicateRecordings = async () => {
   }
 };
 
-// Helper function to convert Cloudinary audio URL to PCM WAV format
-// This ensures all audio files (including old Opus) are downloaded as standard PCM WAV
-const getPcmWavUrl = (audioUrl) => {
+// Helper function to download and convert audio to standard PCM WAV format
+// Uses ffmpeg to ensure proper WAV format for old Opus/codec files
+const convertToPcmWav = async (audioUrl) => {
+  const axios = require("axios");
+  const path = require("path");
+  const fs = require("fs");
+  const ffmpeg = require("fluent-ffmpeg");
+  const os = require("os");
+  const ffmpegStatic = require("ffmpeg-static");
+  
   if (!audioUrl) return null;
   
-  // Check if it's a Cloudinary URL
-  if (!audioUrl.includes('cloudinary.com')) {
-    return audioUrl; // Not a Cloudinary URL, return as is
+  // Set ffmpeg path
+  ffmpeg.setFfmpegPath(ffmpegStatic);
+  
+  // Create temp directory if not exists
+  const tempDir = path.join(os.tmpdir(), "audio_convert");
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
   }
   
-  // Insert transformation parameters to convert to PCM WAV
-  // Original: .../video/upload/... -> .../video/upload/ac_none,fl_wav/...
-  const transformedUrl = audioUrl.replace(
-    '/video/upload/',
-    '/video/upload/ac_none,fl_wav/'
-  );
+  const tempInput = path.join(tempDir, `input_${Date.now()}.mp4`);
+  const tempOutput = path.join(tempDir, `output_${Date.now()}.wav`);
   
-  return transformedUrl;
+  try {
+    // Download the original file
+    const response = await axios.get(audioUrl, {
+      responseType: "stream",
+      timeout: 60000
+    });
+    
+    // Save to temp file
+    await new Promise((resolve, reject) => {
+      const writer = fs.createWriteStream(tempInput);
+      response.data.pipe(writer);
+      writer.on("finish", resolve);
+      writer.on("error", reject);
+    });
+    
+    // Convert to PCM WAV using ffmpeg
+    await new Promise((resolve, reject) => {
+      ffmpeg(tempInput)
+        .audioChannels(1)           // Mono
+        .audioFrequency(16000)    // 16kHz sample rate (standard for speech)
+        .audioCodec("pcm_s16le")  // PCM 16-bit signed little-endian
+        .format("wav")
+        .on("error", reject)
+        .on("end", resolve)
+        .save(tempOutput);
+    });
+    
+    // Read the converted file
+    const wavBuffer = fs.readFileSync(tempOutput);
+    
+    // Clean up temp files
+    fs.unlinkSync(tempInput);
+    fs.unlinkSync(tempOutput);
+    
+    return wavBuffer;
+  } catch (error) {
+    // Clean up on error
+    if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput);
+    if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
+    throw error;
+  }
 };
 
 // DOWNLOAD RECORDINGS BY SPEAKER (as .txt + .wav files in zip)
@@ -432,13 +479,9 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         // Download and add .wav file from Cloudinary in audio/ folder
         if (recording.audioUrl) {
           try {
-            // Convert to PCM WAV format (handles old Opus files too)
-            const pcmUrl = getPcmWavUrl(recording.audioUrl);
-            const response = await axios.get(pcmUrl, {
-              responseType: "arraybuffer",
-              timeout: 30000
-            });
-            archive.append(response.data, {
+            // Convert to PCM WAV format using ffmpeg (handles old Opus files too)
+            const wavBuffer = await convertToPcmWav(recording.audioUrl);
+            archive.append(wavBuffer, {
               name: `${rootFolder}/audio/${sentenceId}_${recordingId}.wav`
             });
           } catch (error) {
