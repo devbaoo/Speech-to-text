@@ -164,7 +164,6 @@ const rejectRecording = async (id) => {
   return mapRecording(updated);
 };
 
-// Get recordings by isApproved status
 const getRecordingsByStatus = async (status) => {
   const validStatuses = [0, 1, 2, 3];
   if (!validStatuses.includes(Number(status))) {

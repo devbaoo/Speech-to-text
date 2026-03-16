@@ -13,7 +13,7 @@ exports.createSentence = async (req, res) => {
       data: sentence
     });
   } catch (err) {
-    res.status(400).json({
+    res.status(400).json({ 
       message: err.message,
     });
   }
