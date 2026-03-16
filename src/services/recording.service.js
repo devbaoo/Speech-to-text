@@ -14,10 +14,8 @@ const uploadWavAudio = async (file) => {
       resource_type: "video",
       folder: "lesson_audio",
       format: "wav",
-      audio_codec: "none",
-      // tối ưu cho speech
-      audio_frequency: 16000, 
-      channels: 1,            
+      audio_codec: "none", // Lưu dưới dạng PCM WAV không nén
+      bit_rate: "192k",   // Đảm bảo chất lượng tốt
       use_filename: true,
       unique_filename: true,
     });
@@ -74,7 +72,7 @@ const getAllRecordings = async (page = 1, limit = 20, status = null, email = nul
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit);
-  const totalCount = await Recording.countDocuments(filterQuery);
+    const totalCount = await Recording.countDocuments(filterQuery);
 
   // Global stats for recordings that have isApproved = 1 (đã duyệt)
   const approvedAgg = await Recording.aggregate([
@@ -160,7 +158,7 @@ const rejectRecording = async (id) => {
   const updated = await Recording.findByIdAndUpdate(
     id,
     { isApproved: 2 },
-    { new: true }
+    { new: true } 
   );
   if (!updated) throw new Error("Recording not found");
   return mapRecording(updated);
@@ -298,28 +296,28 @@ const convertToPcmWav = async (audioUrl) => {
   const ffmpeg = require("fluent-ffmpeg");
   const os = require("os");
   const ffmpegStatic = require("ffmpeg-static");
-
+  
   if (!audioUrl) return null;
-
+  
   // Set ffmpeg path
   ffmpeg.setFfmpegPath(ffmpegStatic);
-
+  
   // Create temp directory if not exists
   const tempDir = path.join(os.tmpdir(), "audio_convert");
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
   }
-
+  
   const tempInput = path.join(tempDir, `input_${Date.now()}.mp4`);
   const tempOutput = path.join(tempDir, `output_${Date.now()}.wav`);
-
+  
   try {
     // Download the original file
     const response = await axios.get(audioUrl, {
       responseType: "stream",
       timeout: 60000
     });
-
+    
     // Save to temp file
     await new Promise((resolve, reject) => {
       const writer = fs.createWriteStream(tempInput);
@@ -327,7 +325,7 @@ const convertToPcmWav = async (audioUrl) => {
       writer.on("finish", resolve);
       writer.on("error", reject);
     });
-
+    
     // Convert to PCM WAV using ffmpeg
     await new Promise((resolve, reject) => {
       ffmpeg(tempInput)
@@ -339,14 +337,14 @@ const convertToPcmWav = async (audioUrl) => {
         .on("end", resolve)
         .save(tempOutput);
     });
-
+    
     // Read the converted file
     const wavBuffer = fs.readFileSync(tempOutput);
-
+    
     // Clean up temp files
     fs.unlinkSync(tempInput);
     fs.unlinkSync(tempOutput);
-
+    
     return wavBuffer;
   } catch (error) {
     // Clean up on error
@@ -363,27 +361,27 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
   const path = require("path");
   const archiver = require("archiver");
   const { Readable } = require("stream");
-
+  
   try {
     // Normalize to array
     const emailList = Array.isArray(emails) ? emails : [emails];
-
+    
     // Helper function to parse date/datetime string
     const parseDateTime = (dateStr, isEndOfDay = false) => {
       if (!dateStr) return null;
-
+      
       // Support formats:
       // - YYYY-MM-DD (mặc định 00:00:00, hoặc 23:59:59 nếu isEndOfDay)
       // - YYYY-MM-DD HH:mm
       // - YYYY-MM-DD HH:mm:ss
       // - YYYY-MM-DDTHH:mm:ss
-
+      
       const date = new Date(dateStr);
-
+      
       if (isNaN(date.getTime())) {
         throw new Error(`Invalid date format: ${dateStr}. Use YYYY-MM-DD or YYYY-MM-DD HH:mm:ss`);
       }
-
+      
       // If only date is provided (no time), set time accordingly
       if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/) && !dateStr.includes(' ') && !dateStr.includes('T')) {
         if (isEndOfDay) {
@@ -392,10 +390,10 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
           date.setHours(0, 0, 0, 0);
         }
       }
-
+      
       return date;
     };
-
+    
     // Build date filter
     const dateFilter = {};
     if (dateFrom || dateTo) {
@@ -419,10 +417,10 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
       // Find person by ID or email
       let personId = emailOrId;
       let personEmail = emailOrId;
-
+      
       // Check if it's a valid MongoDB ObjectId
       const isObjectId = emailOrId.match(/^[0-9a-fA-F]{24}$/);
-
+      
       if (!isObjectId) {
         // It's an email, find the person
         const person = await Person.findOne({ email: emailOrId.toLowerCase() });
@@ -455,17 +453,17 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
       const now = new Date();
       const dateTimeStr = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const rootFolder = `recordings_${folderName}_${dateTimeStr}`;
-
+      
       // Save first root folder for zip filename
       if (firstRootFolder === null) {
         firstRootFolder = rootFolder;
       }
-
+      
       // Add recordings to archive in folder
       for (let i = 0; i < recordings.length; i++) {
         const recording = recordings[i];
         const sentence = recording.sentenceId;
-
+        
         if (!sentence || !sentence.content) {
           continue;
         }
@@ -481,9 +479,11 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         // Download and add .wav file from Cloudinary in audio/ folder
         if (recording.audioUrl) {
           try {
-            // Convert to PCM WAV format using ffmpeg (handles old Opus files too)
-            const wavBuffer = await convertToPcmWav(recording.audioUrl);
-            archive.append(wavBuffer, {
+            const response = await axios.get(recording.audioUrl, {
+              responseType: "arraybuffer",
+              timeout: 60000
+            });
+            archive.append(response.data, {
               name: `${rootFolder}/audio/${sentenceId}_${recordingId}.wav`
             });
           } catch (error) {

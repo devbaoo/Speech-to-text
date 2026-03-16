@@ -151,13 +151,16 @@ exports.downloadSentences = async (req, res) => {
         name: `text/${item.sentence.SentenceID}.txt`
       });
       for (const rec of item.recordings || []) {
-        // Convert to PCM WAV format using ffmpeg
-        const wavBuffer = await convertToPcmWav(rec.AudioUrl);
+        // Download audio directly
+        const response = await axios.get(rec.AudioUrl, {
+          responseType: "arraybuffer",
+          timeout: 60000
+        });
 
         // place all audio files under audio/ with format: {SentenceID}_{RecordingID}.wav
         const sentenceId = item.sentence.SentenceID;
         const recordingId = rec.RecordingID;
-        archive.append(wavBuffer, {
+        archive.append(response.data, {
           name: `audio/${sentenceId}_${recordingId}.wav`
         });
       }
