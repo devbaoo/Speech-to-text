@@ -153,7 +153,6 @@ const approveRecording = async (id) => {
   return mapRecording(updatedRecording);
 };
 
-// REJECT recording (set isApproved = 2)
 const rejectRecording = async (id) => {
   const updated = await Recording.findByIdAndUpdate(
     id,
