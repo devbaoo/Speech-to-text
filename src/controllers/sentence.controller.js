@@ -63,6 +63,13 @@ exports.createUserSentence = async (req, res) => {
   }
 };
 
+// Helper function to convert Cloudinary audio URL to PCM WAV format
+const getPcmWavUrl = (audioUrl) => {
+  if (!audioUrl) return null;
+  if (!audioUrl.includes('cloudinary.com')) return audioUrl;
+  return audioUrl.replace('/video/upload/', '/video/upload/ac_none,fl_wav/');
+};
+
 // Download sentences for export modes: all | with-audio | approved
 exports.downloadSentences = async (req, res) => {
   try {
@@ -93,7 +100,9 @@ exports.downloadSentences = async (req, res) => {
         name: `text/${item.sentence.SentenceID}.txt`
       });
       for (const rec of item.recordings || []) {
-        const audioStream = await axios.get(rec.AudioUrl, {
+        // Convert to PCM WAV format
+        const pcmUrl = getPcmWavUrl(rec.AudioUrl);
+        const audioStream = await axios.get(pcmUrl, {
           responseType: "stream"
         });
 

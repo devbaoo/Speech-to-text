@@ -14,6 +14,8 @@ const uploadWavAudio = async (file) => {
       resource_type: "video",
       folder: "lesson_audio",
       format: "wav",
+      audio_codec: "none", // Lưu dưới dạng PCM WAV không nén
+      bit_rate: "192k",   // Đảm bảo chất lượng tốt
       use_filename: true,
       unique_filename: true,
     });
@@ -285,6 +287,26 @@ const deleteDuplicateRecordings = async () => {
   }
 };
 
+// Helper function to convert Cloudinary audio URL to PCM WAV format
+// This ensures all audio files (including old Opus) are downloaded as standard PCM WAV
+const getPcmWavUrl = (audioUrl) => {
+  if (!audioUrl) return null;
+  
+  // Check if it's a Cloudinary URL
+  if (!audioUrl.includes('cloudinary.com')) {
+    return audioUrl; // Not a Cloudinary URL, return as is
+  }
+  
+  // Insert transformation parameters to convert to PCM WAV
+  // Original: .../video/upload/... -> .../video/upload/ac_none,fl_wav/...
+  const transformedUrl = audioUrl.replace(
+    '/video/upload/',
+    '/video/upload/ac_none,fl_wav/'
+  );
+  
+  return transformedUrl;
+};
+
 // DOWNLOAD RECORDINGS BY SPEAKER (as .txt + .wav files in zip)
 // Support single email or array of emails (comma-separated)
 const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved = 1) => {
@@ -410,7 +432,9 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         // Download and add .wav file from Cloudinary in audio/ folder
         if (recording.audioUrl) {
           try {
-            const response = await axios.get(recording.audioUrl, {
+            // Convert to PCM WAV format (handles old Opus files too)
+            const pcmUrl = getPcmWavUrl(recording.audioUrl);
+            const response = await axios.get(pcmUrl, {
               responseType: "arraybuffer",
               timeout: 30000
             });
