@@ -1,4 +1,4 @@
-const cloudinary = require("cloudinary").v2;
+const storage = require("../services/storage");
 const Recording = require("../models/recording");
 const Person = require("../models/person");
 const recordingService = require("../services/recording.service");
@@ -30,10 +30,14 @@ exports.uploadAudio = async (req, res) => {
         message: "Thiếu file audio",
       });
     }
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      resource_type: "video",
-      folder: "lesson_audio",
-    });
+
+    // Upload file lên storage (Wasabi/Cloudinary/Local - tự động theo .env)
+    const uploadResult = await storage.upload(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      { folder: "lesson_audio" }
+    );
 
     // Get person's email to check if auto-approved
     const person = await Person.findById(personId);
@@ -42,9 +46,9 @@ exports.uploadAudio = async (req, res) => {
     const recording = await Recording.create({
       personId,
       sentenceId,
-      audioUrl: result.secure_url,
+      audioUrl: uploadResult.url,
       isApproved: isAutoApproved ? 1 : 0, // 1 = được duyệt, 0 = chờ duyệt
-      duration: result.duration || null,
+      duration: uploadResult.metadata?.duration || null,
       recordedAt: new Date(),
     });
     res.status(201).json({

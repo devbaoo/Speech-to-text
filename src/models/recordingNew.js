@@ -1,0 +1,50 @@
+const mongoose = require("mongoose");
+
+const recordingSchema = new mongoose.Schema(
+  {
+    personId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Person",
+      required: true,
+    },
+
+    sentenceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "sentence_new",
+      required: true,
+    },
+
+    audioUrl: {
+      type: String,
+      required: true,
+    },
+
+    isApproved: {
+      type: Number,
+      enum: [0, 1, 2, 3],
+      default: 0, // 0 = chờ duyệt, 1 = được duyệt, 2 = bị từ chối, 3 = không thể duyệt
+    },
+
+    duration: {
+      type: Number, // duration in seconds (or as returned by cloudinary)
+      default: null,
+    },
+
+    recordedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  {
+    collection: "recording_new",
+    timestamps: false,
+  }
+);
+
+// Add indexes for performance
+recordingSchema.index({ isApproved: 1, createdAt: -1 });
+recordingSchema.index({ personId: 1 });
+recordingSchema.index({ sentenceId: 1 });
+recordingSchema.index({ isApproved: 1 });
+
+module.exports = mongoose.model("recording_new", recordingSchema);
