@@ -2,6 +2,10 @@ const mongoose = require('mongoose');
 
 const sentenceSchema = new mongoose.Schema(
   {
+    plain_text: {
+      type: String,
+      required: false
+    },
     content: {
       type: String,
       required: true
@@ -14,9 +18,8 @@ const sentenceSchema = new mongoose.Schema(
     status: {
       type: Number,
       enum: [0, 1, 2, 3],
-      default: 1 // 0=user created, 1=admin created, 2=has approved recording, 3=rejected
-    }
-    ,
+      default: 1
+    },
     createdBy: {
       type: String,
       default: null

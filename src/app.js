@@ -13,6 +13,7 @@ app.use("/api/sentences", require("./routes/sentence.route"));
 app.use("/api/sentences-new", require("./routes/sentenceNew.route"));
 app.use("/api/recordings", require("./routes/recording.route"));
 app.use("/api/recordings-new", require("./routes/recordingNew.route"));
+app.use("/api/import", require("./routes/importJson.route"));
 
 // Global error handler to return JSON (handles multer and other errors)
 app.use((err, req, res, next) => {
