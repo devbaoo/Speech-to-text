@@ -114,6 +114,12 @@ exports.createUserSentence = async (content, userName = null, personId = null, p
     return { created, skipped };
 };
 
+const mapDownloadRow = (doc) => ({
+    sentenceId: doc._id.toString(),
+    plain_text: doc.plainText || null,
+    text_annotation: doc.content
+});
+
 // Download sentences for different modes:
 // mode = 'all' -> all sentences (0,1,2,3) with recordings if any
 // mode = 'with-audio' -> sentences that have recordings with isApproved IN (0,1)
@@ -145,7 +151,7 @@ exports.downloadSentences = async (mode = "all") => {
         });
 
         return sentences.map(s => ({
-            sentence: mapSentence(s),
+            ...mapDownloadRow(s),
             recordings: recordingsBySentence[s._id.toString()] || []
         }));
     }
@@ -160,14 +166,7 @@ exports.downloadSentences = async (mode = "all") => {
             if (!r.sentenceId) return;
             const sid = r.sentenceId._id.toString();
             mapBySentence[sid] = mapBySentence[sid] || {
-                sentence: {
-                    SentenceID: r.sentenceId._id,
-                    Content: r.sentenceId.content,
-                    PlainText: r.sentenceId.plainText || null,
-                    CreatedAt: r.sentenceId.createdAt,
-                    Status: r.sentenceId.status,
-                    CreatedBy: r.sentenceId.createdBy || null
-                },
+                ...mapDownloadRow(r.sentenceId),
                 recordings: []
             };
             mapBySentence[sid].recordings.push({
@@ -193,14 +192,7 @@ exports.downloadSentences = async (mode = "all") => {
             if (r.sentenceId.status !== 2) return;
             const sid = r.sentenceId._id.toString();
             mapBySentence[sid] = mapBySentence[sid] || {
-                sentence: {
-                    SentenceID: r.sentenceId._id,
-                    Content: r.sentenceId.content,
-                    PlainText: r.sentenceId.plainText || null,
-                    CreatedAt: r.sentenceId.createdAt,
-                    Status: r.sentenceId.status,
-                    CreatedBy: r.sentenceId.createdBy || null
-                },
+                ...mapDownloadRow(r.sentenceId),
                 recordings: []
             };
             mapBySentence[sid].recordings.push({

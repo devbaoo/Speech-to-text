@@ -145,22 +145,30 @@ exports.downloadSentences = async (req, res) => {
     archive.pipe(res);
 
     for (const item of data) {
-      // Dùng plainText nếu có, không thì dùng content
-      const textContent = item.sentence.PlainText || item.sentence.Content;
+      const textContent = JSON.stringify(
+        {
+          plain_text: item.plain_text ?? "",
+          text_annotation: item.text_annotation ?? ""
+        },
+        null,
+        2
+      );
       archive.append(textContent + "\n", {
-        name: `text/${item.sentence.SentenceID}.txt`
+        name: `text/${item.sentenceId}.txt`
       });
       for (const rec of item.recordings || []) {
-        const response = await axios.get(rec.AudioUrl, {
-          responseType: "arraybuffer",
-          timeout: 60000
-        });
-
-        const sentenceId = item.sentence.SentenceID;
-        const recordingId = rec.RecordingID;
-        archive.append(response.data, {
-          name: `audio/${sentenceId}_${recordingId}.wav`
-        });
+        try {
+          const pcmBuffer = await convertToPcmWav(rec.AudioUrl);
+          if (pcmBuffer) {
+            const sentenceId = item.sentenceId;
+            const recordingId = rec.RecordingID;
+            archive.append(pcmBuffer, {
+              name: `audio/${sentenceId}_${recordingId}.wav`
+            });
+          }
+        } catch (err) {
+          console.error(`Lỗi convert audio ${rec.RecordingID}:`, err.message);
+        }
       }
     }
 
