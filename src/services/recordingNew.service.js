@@ -390,7 +390,7 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
       }
 
       const recordings = await Recording.find(filterQuery)
-        .populate("sentenceId", "content")
+        .populate("sentenceId", "content plainText")
         .sort({ recordedAt: -1 });
 
       if (recordings.length === 0) {
@@ -418,19 +418,23 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         const sentenceId = sentence._id.toString();
         const recordingId = recording._id.toString();
 
-        archive.append(sentence.content, {
+        const textContent = JSON.stringify({
+          plain_text: sentence.plainText || "",
+          text_annotation: sentence.content
+        }, null, 2);
+
+        archive.append(textContent, {
           name: `${rootFolder}/text/${sentenceId}.txt`
         });
 
         if (recording.audioUrl) {
           try {
-            const response = await axios.get(recording.audioUrl, {
-              responseType: "arraybuffer",
-              timeout: 60000
-            });
-            archive.append(response.data, {
-              name: `${rootFolder}/audio/${sentenceId}_${recordingId}.wav`
-            });
+            const pcmBuffer = await convertToPcmWav(recording.audioUrl);
+            if (pcmBuffer) {
+              archive.append(pcmBuffer, {
+                name: `${rootFolder}/audio/${sentenceId}_${recordingId}.wav`
+              });
+            }
           } catch (error) {
             console.error(`Lỗi khi tải file audio ${sentenceId}_${recordingId}:`, error.message);
           }
