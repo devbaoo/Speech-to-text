@@ -31,7 +31,6 @@ const personSchema = new mongoose.Schema(
   }
 );
 
-// Add index for person email lookups
-personSchema.index({ email: 1 });
+
 
 module.exports = mongoose.model('Person', personSchema);

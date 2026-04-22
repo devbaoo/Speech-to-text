@@ -2,8 +2,10 @@ const cloudinary = require("cloudinary").v2;
 const fs = require("fs");
 const Recording = require("../models/recording");
 const Sentence = require("../models/sentence");
-const Person = require("../models/person"); // Import để đảm bảo model được đăng ký
+const Person = require("../models/person");
 const { mapRecording } = require("../utils/recording.mapper");
+const storage = require("./storage");
+
 
 // upload audio
 const uploadWavAudio = async (file) => {
@@ -90,7 +92,27 @@ const getAllRecordings = async (page = 1, limit = 20, status = null, email = nul
   const approvedDurationHours = approvedDurationSeconds / 3600;
   const pendingCount = await Recording.countDocuments({ isApproved: 0 });
   const rejectedCount = await Recording.countDocuments({ isApproved: 2 });
-  const mapped = recordings.map(mapRecording);
+  
+  // Use Promise.all to handle async signing of URLs
+  const mapped = await Promise.all(recordings.map(async (r) => {
+    const m = mapRecording(r);
+    // If it's a Wasabi URL, generate a signed URL for playback
+    if (m.AudioUrl && (m.AudioUrl.includes('wasabisys.com') || m.AudioUrl.includes('s3.'))) {
+      try {
+        const bucket = process.env.WASABI_BUCKET;
+        // Extract key from public URL: endpoint/bucket/key
+        const parts = m.AudioUrl.split(`${bucket}/`);
+        if (parts.length > 1) {
+          const key = parts[1];
+          m.AudioUrl = await storage.getSignedUrl(key);
+        }
+      } catch (err) {
+        console.warn("Failed to sign Wasabi URL:", err.message);
+      }
+    }
+    return m;
+  }));
+  
   const totalDurationSeconds = recordings.reduce((acc, r) => acc + (r.duration || 0), 0);
   const totalDurationHours = totalDurationSeconds / 3600;
 
@@ -150,7 +172,21 @@ const approveRecording = async (id) => {
     { status: 2 }
   );
 
-  return mapRecording(updatedRecording);
+  const mapped = mapRecording(updatedRecording);
+  // Sign URL for immediate feedback in UI
+  if (mapped.AudioUrl && (mapped.AudioUrl.includes('wasabisys.com') || mapped.AudioUrl.includes('s3.'))) {
+    try {
+      const bucket = process.env.WASABI_BUCKET;
+      const parts = mapped.AudioUrl.split(`${bucket}/`);
+      if (parts.length > 1) {
+        mapped.AudioUrl = await storage.getSignedUrl(parts[1]);
+      }
+    } catch (e) {
+      console.warn("Failed to sign Wasabi URL on approve:", e.message);
+    }
+  }
+
+  return mapped;
 };
 
 const rejectRecording = async (id) => {
@@ -172,7 +208,21 @@ const getRecordingsByStatus = async (status) => {
   const recordings = await Recording.find({ isApproved: Number(status) })
     .sort({ createdAt: -1 });
 
-  return recordings.map(mapRecording);
+  return Promise.all(recordings.map(async (r) => {
+    const m = mapRecording(r);
+    if (m.AudioUrl && (m.AudioUrl.includes('wasabisys.com') || m.AudioUrl.includes('s3.'))) {
+      try {
+        const bucket = process.env.WASABI_BUCKET;
+        const parts = m.AudioUrl.split(`${bucket}/`);
+        if (parts.length > 1) {
+          m.AudioUrl = await storage.getSignedUrl(parts[1]);
+        }
+      } catch (err) {
+        console.warn("Failed to sign Wasabi URL on getByStatus:", err.message);
+      }
+    }
+    return m;
+  }));
 };
 
 // DELETE recording
@@ -288,68 +338,8 @@ const deleteDuplicateRecordings = async () => {
 // Helper function to download and convert audio to standard PCM WAV format
 // Uses ffmpeg to ensure proper WAV format for old Opus/codec files
 const convertToPcmWav = async (audioUrl) => {
-  const axios = require("axios");
-  const path = require("path");
-  const fs = require("fs");
-  const ffmpeg = require("fluent-ffmpeg");
-  const os = require("os");
-  const ffmpegStatic = require("ffmpeg-static");
-  
-  if (!audioUrl) return null;
-  
-  // Set ffmpeg path
-  ffmpeg.setFfmpegPath(ffmpegStatic);
-  
-  // Create temp directory if not exists
-  const tempDir = path.join(os.tmpdir(), "audio_convert");
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
-  
-  const tempInput = path.join(tempDir, `input_${Date.now()}.mp4`);
-  const tempOutput = path.join(tempDir, `output_${Date.now()}.wav`);
-  
-  try {
-    // Download the original file
-    const response = await axios.get(audioUrl, {
-      responseType: "stream",
-      timeout: 60000
-    });
-    
-    // Save to temp file
-    await new Promise((resolve, reject) => {
-      const writer = fs.createWriteStream(tempInput);
-      response.data.pipe(writer);
-      writer.on("finish", resolve);
-      writer.on("error", reject);
-    });
-    
-    // Convert to PCM WAV using ffmpeg
-    await new Promise((resolve, reject) => {
-      ffmpeg(tempInput)
-        .audioChannels(1)           // Mono
-        .audioFrequency(16000)    // 16kHz sample rate (standard for speech)
-        .audioCodec("pcm_s16le")  // PCM 16-bit signed little-endian
-        .format("wav")
-        .on("error", reject)
-        .on("end", resolve)
-        .save(tempOutput);
-    });
-    
-    // Read the converted file
-    const wavBuffer = fs.readFileSync(tempOutput);
-    
-    // Clean up temp files
-    fs.unlinkSync(tempInput);
-    fs.unlinkSync(tempOutput);
-    
-    return wavBuffer;
-  } catch (error) {
-    // Clean up on error
-    if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput);
-    if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
-    throw error;
-  }
+  const { convertToPcmWav: _convertToPcmWav } = require("../utils/audio.utils");
+  return _convertToPcmWav(audioUrl, storage);
 };
 
 // DOWNLOAD RECORDINGS BY SPEAKER (as .txt + .wav files in zip)

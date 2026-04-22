@@ -12,7 +12,7 @@ const { getAudioDuration } = require("../../utils/audio.utils");
 class LocalStorageService extends BaseStorageService {
   constructor(config = {}) {
     super(config);
-    this.basePath = config.basePath || path.join(__dirname, "..", "..", "uploads");
+    this.basePath = config.basePath || path.join(__dirname, "..", "..", "..", "uploads");
     this.baseUrl = config.baseUrl || "/uploads";
     this.folder = config.folder || "files";
     this.ensureDirectoryExists(this.basePath);
