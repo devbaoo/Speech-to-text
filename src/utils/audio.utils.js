@@ -124,4 +124,69 @@ async function getAudioDuration(buffer, mimeType) {
   return await getAudioDurationFromFFmpeg(buffer);
 }
 
-module.exports = { getAudioDuration };
+async function convertToPcmWav(audioUrl, storage = null) {
+  const axios = require("axios");
+  
+  if (!audioUrl) return null;
+
+  let downloadUrl = audioUrl;
+  
+  // If storage is provided and it's a Wasabi URL, sign it
+  if (storage && (downloadUrl.includes('wasabisys.com') || downloadUrl.includes('s3.'))) {
+    try {
+      const bucket = process.env.WASABI_BUCKET;
+      const parts = downloadUrl.split(`${bucket}/`);
+      if (parts.length > 1) {
+        downloadUrl = await storage.getSignedUrl(parts[1], 300);
+      }
+    } catch (err) {
+      console.warn("Failed to sign URL for internal download in utils:", err.message);
+    }
+  }
+
+  const tempDir = path.join(os.tmpdir(), "audio_convert");
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  const tempInput = path.join(tempDir, `input_${Date.now()}.mp4`);
+  const tempOutput = path.join(tempDir, `output_${Date.now()}.wav`);
+
+  try {
+    const response = await axios.get(downloadUrl, {
+      responseType: "stream",
+      timeout: 60000
+    });
+
+    await new Promise((resolve, reject) => {
+      const writer = fs.createWriteStream(tempInput);
+      response.data.pipe(writer);
+      writer.on("finish", resolve);
+      writer.on("error", reject);
+    });
+
+    await new Promise((resolve, reject) => {
+      ffmpeg(tempInput)
+        .audioChannels(1)
+        .audioFrequency(16000)
+        .audioCodec("pcm_s16le")
+        .format("wav")
+        .on("error", reject)
+        .on("end", resolve)
+        .save(tempOutput);
+    });
+
+    const wavBuffer = fs.readFileSync(tempOutput);
+
+    fs.unlinkSync(tempInput);
+    fs.unlinkSync(tempOutput);
+
+    return wavBuffer;
+  } catch (error) {
+    if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput);
+    if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
+    throw error;
+  }
+}
+
+module.exports = { getAudioDuration, convertToPcmWav };

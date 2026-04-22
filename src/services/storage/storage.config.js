@@ -56,7 +56,7 @@ else if (hasCloudinary) {
 // Fallback to local storage for development
 else {
   storageFactory.register("local", "local", {
-    LOCAL_PATH: path.join(__dirname, "..", "..", "uploads"),
+    LOCAL_PATH: path.join(__dirname, "..", "..", "..", "uploads"),
     LOCAL_URL: process.env.LOCAL_URL || "/uploads",
     LOCAL_FOLDER: "files",
   });

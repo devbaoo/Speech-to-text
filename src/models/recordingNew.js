@@ -45,6 +45,5 @@ const recordingSchema = new mongoose.Schema(
 recordingSchema.index({ isApproved: 1, createdAt: -1 });
 recordingSchema.index({ personId: 1 });
 recordingSchema.index({ sentenceId: 1 });
-recordingSchema.index({ isApproved: 1 });
 
 module.exports = mongoose.model("recording_new", recordingSchema);

@@ -1,6 +1,8 @@
 const sentenceService = require("../services/sentenceNew.service");
 const axios = require("axios");
 const archiver = require("archiver");
+const storage = require("../services/storage");
+const { convertToPcmWav } = require("../utils/audio.utils");
 
 exports.createSentence = async (req, res) => {
   try {
@@ -62,61 +64,8 @@ exports.createUserSentence = async (req, res) => {
 };
 
 // Helper function to download and convert audio to standard PCM WAV format
-const convertToPcmWav = async (audioUrl) => {
-  const axios = require("axios");
-  const path = require("path");
-  const fs = require("fs");
-  const ffmpeg = require("fluent-ffmpeg");
-  const os = require("os");
-  const ffmpegStatic = require("ffmpeg-static");
-
-  if (!audioUrl) return null;
-
-  ffmpeg.setFfmpegPath(ffmpegStatic);
-
-  const tempDir = path.join(os.tmpdir(), "audio_convert");
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
-
-  const tempInput = path.join(tempDir, `input_${Date.now()}.mp4`);
-  const tempOutput = path.join(tempDir, `output_${Date.now()}.wav`);
-
-  try {
-    const response = await axios.get(audioUrl, {
-      responseType: "stream",
-      timeout: 60000
-    });
-
-    await new Promise((resolve, reject) => {
-      const writer = fs.createWriteStream(tempInput);
-      response.data.pipe(writer);
-      writer.on("finish", resolve);
-      writer.on("error", reject);
-    });
-
-    await new Promise((resolve, reject) => {
-      ffmpeg(tempInput)
-        .audioChannels(1)
-        .audioFrequency(16000)
-        .audioCodec("pcm_s16le")
-        .format("wav")
-        .on("error", reject)
-        .on("end", resolve)
-        .save(tempOutput);
-    });
-
-    const wavBuffer = fs.readFileSync(tempOutput);
-
-    fs.unlinkSync(tempInput);
-    fs.unlinkSync(tempOutput);
-
-    return wavBuffer;
-  } catch (error) {
-    if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput);
-    if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
-    throw error;
-  }
+const _convertToPcmWav = async (audioUrl) => {
+  return convertToPcmWav(audioUrl, storage);
 };
 
 // Download sentences for export modes: all | with-audio | approved
@@ -158,7 +107,7 @@ exports.downloadSentences = async (req, res) => {
       });
       for (const rec of item.recordings || []) {
         try {
-          const pcmBuffer = await convertToPcmWav(rec.AudioUrl);
+          const pcmBuffer = await _convertToPcmWav(rec.AudioUrl);
           if (pcmBuffer) {
             const sentenceId = item.sentenceId;
             const recordingId = rec.RecordingID;
