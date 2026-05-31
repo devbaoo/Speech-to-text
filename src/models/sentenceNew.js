@@ -19,6 +19,18 @@ const sentenceSchema = new mongoose.Schema(
     plainText: {
       type: String,
       default: null
+    },
+    audioPlaintext: {
+      type: String,
+      default: null
+    },
+    audioContent: {
+      type: String,
+      default: null
+    },
+    recordingsCount: {
+      type: Number,
+      default: 0
     }
   },
   {

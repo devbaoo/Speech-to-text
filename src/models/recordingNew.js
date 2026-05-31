@@ -19,6 +19,12 @@ const recordingSchema = new mongoose.Schema(
       required: true,
     },
 
+    type: {
+      type: String,
+      enum: ["plaintext", "content"],
+      required: true
+    },
+
     isApproved: {
       type: Number,
       enum: [0, 1, 2, 3],
@@ -34,6 +40,12 @@ const recordingSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+
+    // Trạng thái đã lưu vào Sentence (tránh lưu trùng)
+    savedToSentence: {
+      type: Boolean,
+      default: false
+    }
   },
   {
     collection: "recording_new",
