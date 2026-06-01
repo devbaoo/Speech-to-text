@@ -3,6 +3,7 @@ const router = express.Router();
 
 const sentenceController = require("../controllers/sentenceNewMake.controller");
 const { verifyAdminOrManager } = require("../middlewares/admin.middleware");
+const uploadJson = require("../middlewares/jsonUpload.middleware");
 
 // Create sentence (admin/manager)
 router.post("/", verifyAdminOrManager, sentenceController.createSentence);
@@ -10,7 +11,10 @@ router.post("/", verifyAdminOrManager, sentenceController.createSentence);
 // Create user sentence
 router.post("/user", sentenceController.createUserSentence);
 
-// Import JSON data
+// Import JSON file (upload)
+router.post("/import-file", verifyAdminOrManager, uploadJson.single('file'), sentenceController.importJsonFile);
+
+// Import JSON data (raw body)
 router.post("/import", verifyAdminOrManager, sentenceController.importJson);
 
 // Get approved sentences without recordings
