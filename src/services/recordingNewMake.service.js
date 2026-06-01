@@ -2,7 +2,6 @@ const cloudinary = require("cloudinary").v2;
 const Recording = require("../models/recordingNewMake");
 const Sentence = require("../models/sentenceNewMake");
 const Person = require("../models/person");
-const { mapRecording } = require("../utils/recording.mapper");
 const storage = require("./storage");
 
 // GET ALL
@@ -45,35 +44,77 @@ const getAllRecordings = async (page = 1, limit = 20, status = null, email = nul
     .limit(limit);
   const totalCount = await Recording.countDocuments(filterQuery);
 
-  const approvedAgg = await Recording.aggregate([
-    { $match: { isApproved: 1 } },
-    {
-      $group: {
-        _id: null,
-        count: { $sum: 1 },
-        totalDuration: { $sum: { $ifNull: ["$duration", 0] } }
-      }
+  // Stats: đếm theo sentence (1 record = 1 cặp audio)
+  const allRecordings = await Recording.find(filterQuery);
+  let approvedCount = 0;
+  let approvedDurationSeconds = 0;
+  let pendingCount = 0;
+  let rejectedCount = 0;
+
+  allRecordings.forEach(r => {
+    if (r.isApproved === 1) {
+      approvedCount++;
+      approvedDurationSeconds += (r.durationPlaintext || 0) + (r.durationContent || 0);
+    } else if (r.isApproved === 0) {
+      pendingCount++;
+    } else if (r.isApproved === 2) {
+      rejectedCount++;
     }
-  ]);
-  const approvedCount = approvedAgg[0]?.count || 0;
-  const approvedDurationSeconds = approvedAgg[0]?.totalDuration || 0;
+  });
   const approvedDurationHours = approvedDurationSeconds / 3600;
-  const pendingCount = await Recording.countDocuments({ isApproved: 0 });
-  const rejectedCount = await Recording.countDocuments({ isApproved: 2 });
 
   const mapped = await Promise.all(recordings.map(async (r) => {
-    const m = mapRecording(r);
-    if (m.AudioUrl && (m.AudioUrl.includes('wasabisys.com') || m.AudioUrl.includes('s3.'))) {
+    const m = {
+      RecordingID: r._id,
+      PersonID: r.personId?._id || r.personId,
+      SentenceID: r.sentenceId?._id || r.sentenceId,
+      recordedAt: r.recordedAt,
+      isApproved: r.isApproved,
+      // Sentence fields
+      csTranscript: r.sentenceId?.csTranscript || null,
+      viEquivalent: r.sentenceId?.viEquivalent || null,
+    };
+
+    // Sign URLs for audioPlaintext
+    if (r.audioPlaintext && (r.audioPlaintext.includes('wasabisys.com') || r.audioPlaintext.includes('s3.'))) {
       try {
         const bucket = process.env.WASABI_BUCKET;
-        const parts = m.AudioUrl.split(`${bucket}/`);
+        const parts = r.audioPlaintext.split(`${bucket}/`);
         if (parts.length > 1) {
-          m.AudioUrl = await storage.getSignedUrl(parts[1]);
+          m.AudioPlaintext = await storage.getSignedUrl(parts[1]);
+        } else {
+          m.AudioPlaintext = r.audioPlaintext;
         }
       } catch (err) {
-        console.warn("Failed to sign Wasabi URL:", err.message);
+        console.warn("Failed to sign audioPlaintext URL:", err.message);
+        m.AudioPlaintext = r.audioPlaintext;
       }
+    } else {
+      m.AudioPlaintext = r.audioPlaintext;
     }
+
+    // Sign URLs for audioContent
+    if (r.audioContent && (r.audioContent.includes('wasabisys.com') || r.audioContent.includes('s3.'))) {
+      try {
+        const bucket = process.env.WASABI_BUCKET;
+        const parts = r.audioContent.split(`${bucket}/`);
+        if (parts.length > 1) {
+          m.AudioContent = await storage.getSignedUrl(parts[1]);
+        } else {
+          m.AudioContent = r.audioContent;
+        }
+      } catch (err) {
+        console.warn("Failed to sign audioContent URL:", err.message);
+        m.AudioContent = r.audioContent;
+      }
+    } else {
+      m.AudioContent = r.audioContent;
+    }
+
+    m.durationPlaintext = r.durationPlaintext;
+    m.durationContent = r.durationContent;
+    m.Email = r.personId?.email || null;
+
     return m;
   }));
 
@@ -96,61 +137,64 @@ const approveRecording = async (id) => {
   const recording = await Recording.findById(id);
   if (!recording) throw new Error("Recording not found");
   
-  const updatedRecording = await Recording.findByIdAndUpdate(
-    id,
-    { isApproved: 1 },
-    { new: true }
-  );
+  recording.isApproved = 1;
+  await recording.save();
 
-  const mapped = mapRecording(updatedRecording);
-  if (mapped.AudioUrl && (mapped.AudioUrl.includes('wasabisys.com') || mapped.AudioUrl.includes('s3.'))) {
-    try {
-      const bucket = process.env.WASABI_BUCKET;
-      const parts = mapped.AudioUrl.split(`${bucket}/`);
-      if (parts.length > 1) {
-        mapped.AudioUrl = await storage.getSignedUrl(parts[1]);
-      }
-    } catch (e) {
-      console.warn("Failed to sign Wasabi URL on approve:", e.message);
-    }
-  }
-
-  return mapped;
+  return {
+    RecordingID: recording._id,
+    PersonID: recording.personId,
+    SentenceID: recording.sentenceId,
+    isApproved: recording.isApproved,
+    recordedAt: recording.recordedAt,
+    AudioPlaintext: recording.audioPlaintext,
+    AudioContent: recording.audioContent,
+    durationPlaintext: recording.durationPlaintext,
+    durationContent: recording.durationContent,
+  };
 };
 
 const rejectRecording = async (id) => {
-  const updated = await Recording.findByIdAndUpdate(
+  const recording = await Recording.findByIdAndUpdate(
     id,
     { isApproved: 2 },
     { new: true }
   );
-  if (!updated) throw new Error("Recording not found");
-  return mapRecording(updated);
+  if (!recording) throw new Error("Recording not found");
+  return {
+    RecordingID: recording._id,
+    PersonID: recording.personId,
+    SentenceID: recording.sentenceId,
+    isApproved: recording.isApproved,
+    recordedAt: recording.recordedAt,
+    AudioPlaintext: recording.audioPlaintext,
+    AudioContent: recording.audioContent,
+  };
 };
 
 const getRecordingsByStatus = async (status) => {
-  const validStatuses = [0, 1, 2, 3];
+  const validStatuses = [0, 1, 2];
   if (!validStatuses.includes(Number(status))) {
-    throw new Error("Status không hợp lệ. Chỉ chấp nhận: 0, 1, 2, 3");
+    throw new Error("Status không hợp lệ. Chỉ chấp nhận: 0, 1, 2");
   }
 
   const recordings = await Recording.find({ isApproved: Number(status) })
+    .populate("personId", "email")
+    .populate("sentenceId", "csTranscript viEquivalent")
     .sort({ createdAt: -1 });
 
-  return Promise.all(recordings.map(async (r) => {
-    const m = mapRecording(r);
-    if (m.AudioUrl && (m.AudioUrl.includes('wasabisys.com') || m.AudioUrl.includes('s3.'))) {
-      try {
-        const bucket = process.env.WASABI_BUCKET;
-        const parts = m.AudioUrl.split(`${bucket}/`);
-        if (parts.length > 1) {
-          m.AudioUrl = await storage.getSignedUrl(parts[1]);
-        }
-      } catch (err) {
-        console.warn("Failed to sign Wasabi URL on getByStatus:", err.message);
-      }
-    }
-    return m;
+  return recordings.map((r) => ({
+    RecordingID: r._id,
+    PersonID: r.personId?._id || r.personId,
+    SentenceID: r.sentenceId?._id || r.sentenceId,
+    Email: r.personId?.email || null,
+    isApproved: r.isApproved,
+    recordedAt: r.recordedAt,
+    csTranscript: r.sentenceId?.csTranscript || null,
+    viEquivalent: r.sentenceId?.viEquivalent || null,
+    AudioPlaintext: r.audioPlaintext,
+    AudioContent: r.audioContent,
+    durationPlaintext: r.durationPlaintext,
+    durationContent: r.durationContent,
   }));
 };
 
@@ -159,15 +203,29 @@ const deleteRecording = async (id) => {
   const recording = await Recording.findById(id);
   if (!recording) throw new Error("Recording not found");
 
-  if (recording.audioUrl) {
+  // Delete audioPlaintext if exists
+  if (recording.audioPlaintext) {
     try {
-      const urlParts = recording.audioUrl.split("/");
+      const urlParts = recording.audioPlaintext.split("/");
       const publicIdWithExtension = urlParts.slice(-1)[0];
       const publicId = publicIdWithExtension.split(".")[0];
-      const fullPublicId = `lesson_audio/${publicId}`;
+      const fullPublicId = `lesson_audio_make/${publicId}`;
       await cloudinary.uploader.destroy(fullPublicId, { resource_type: "video" });
     } catch (error) {
-      console.error("Lỗi khi xóa file từ Cloudinary:", error.message);
+      console.error("Lỗi khi xóa audioPlaintext từ Cloudinary:", error.message);
+    }
+  }
+
+  // Delete audioContent if exists
+  if (recording.audioContent) {
+    try {
+      const urlParts = recording.audioContent.split("/");
+      const publicIdWithExtension = urlParts.slice(-1)[0];
+      const publicId = publicIdWithExtension.split(".")[0];
+      const fullPublicId = `lesson_audio_make/${publicId}`;
+      await cloudinary.uploader.destroy(fullPublicId, { resource_type: "video" });
+    } catch (error) {
+      console.error("Lỗi khi xóa audioContent từ Cloudinary:", error.message);
     }
   }
 

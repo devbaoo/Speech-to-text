@@ -51,39 +51,50 @@ exports.uploadAudio = async (req, res) => {
     const person = await Person.findById(personId);
     const isAutoApproved = person && APPROVED_EMAILS.includes(person.email.toLowerCase());
 
-    // Tạo recording với type
-    const recording = await Recording.create({
-      personId,
-      sentenceId,
-      audioUrl: uploadResult.url,
-      type: type,
-      isApproved: isAutoApproved ? 1 : 0,
-      duration: uploadResult.metadata?.duration || null,
-      recordedAt: new Date(),
-    });
+    // Tìm recording đã có cho personId + sentenceId
+    let recording = await Recording.findOne({ personId, sentenceId });
 
-    // Sau khi tạo recording, kiểm tra xem đã đủ 2 bản chưa
-    const recordingsForSentence = await Recording.find({
-      sentenceId: sentenceId,
-      savedToSentence: false
-    });
+    if (recording) {
+      // Update recording đã có
+      if (type === "plaintext") {
+        recording.audioPlaintext = uploadResult.url;
+        recording.durationPlaintext = uploadResult.metadata?.duration || null;
+      } else {
+        recording.audioContent = uploadResult.url;
+        recording.durationContent = uploadResult.metadata?.duration || null;
+      }
+      recording.recordedAt = new Date();
+      await recording.save();
+    } else {
+      // Tạo recording mới
+      const recordingData = {
+        personId,
+        sentenceId,
+        recordedAt: new Date(),
+      };
 
-    const audioPlaintext = recordingsForSentence.find(r => r.type === "plaintext")?.audioUrl || null;
-    const audioContent = recordingsForSentence.find(r => r.type === "content")?.audioUrl || null;
+      if (type === "plaintext") {
+        recordingData.audioPlaintext = uploadResult.url;
+        recordingData.durationPlaintext = uploadResult.metadata?.duration || null;
+      } else {
+        recordingData.audioContent = uploadResult.url;
+        recordingData.durationContent = uploadResult.metadata?.duration || null;
+      }
 
-    // Nếu đã có cả 2 bản ghi âm
-    if (audioPlaintext && audioContent) {
-      // Cập nhật Sentence với cả 2 audio
+      recording = await Recording.create(recordingData);
+    }
+
+    // Kiểm tra xem đã có đủ cả 2 audio chưa
+    const hasAudioPlaintext = !!recording.audioPlaintext;
+    const hasAudioContent = !!recording.audioContent;
+
+    // Nếu đã có cả 2 bản ghi âm, cập nhật Sentence
+    if (hasAudioPlaintext && hasAudioContent) {
       await Sentence.findByIdAndUpdate(sentenceId, {
-        audioPlaintext: audioPlaintext,
-        audioContent: audioContent
+        audioPlaintext: recording.audioPlaintext,
+        audioContent: recording.audioContent,
+        savedToSentence: true
       });
-
-      // Đánh dấu tất cả recordings đã được lưu vào Sentence
-      await Recording.updateMany(
-        { sentenceId: sentenceId, savedToSentence: false },
-        { savedToSentence: true }
-      );
     }
 
     res.status(201).json({
@@ -91,8 +102,7 @@ exports.uploadAudio = async (req, res) => {
       message: "Upload audio thành công",
       data: {
         recording,
-        savedToSentence: audioPlaintext && audioContent ? true : false,
-        hasBothRecordings: audioPlaintext && audioContent
+        hasBothRecordings: hasAudioPlaintext && hasAudioContent
       },
     });
   } catch (error) {
