@@ -328,14 +328,20 @@ exports.approveAllPending = async () => {
 };
 
 // Get approved sentences that don't have any recordings
+// Only get sentences created after 2026-05-30 in UTC+7 timezone
 exports.getApprovedSentencesWithoutRecordings = async (page = 1, limit = 20) => {
     const skip = (page - 1) * limit;
 
     const sentencesWithRecordings = await Recording.distinct("sentenceId");
 
+    // Filter: only sentences created after 2026-05-30 00:00:00 UTC+7
+    // 2026-05-30 00:00:00 UTC+7 = 2026-05-29 17:00:00 UTC
+    const minDate = new Date('2026-05-29T17:00:00.000Z');
+
     const filterQuery = {
         status: 1,
-        _id: { $nin: sentencesWithRecordings }
+        _id: { $nin: sentencesWithRecordings },
+        createdAt: { $gte: minDate }
     };
 
     const rows = await Sentence.find(filterQuery)
