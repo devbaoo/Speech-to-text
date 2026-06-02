@@ -179,6 +179,100 @@ exports.downloadSentences = async (req, res) => {
   }
 };
 
+// Import JSON file (upload)
+exports.importJsonFile = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No file uploaded"
+      });
+    }
+
+    let jsonData;
+    try {
+      jsonData = JSON.parse(req.file.buffer.toString());
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid JSON file"
+      });
+    }
+
+    const sentences = jsonData.sentences || jsonData;
+
+    if (!Array.isArray(sentences) || sentences.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid JSON format. File must contain 'sentences' array or be an array."
+      });
+    }
+
+    const importedBy = req.user?.email || req.user?.username || 'system';
+
+    const results = {
+      imported: 0,
+      skipped: 0,
+      errors: []
+    };
+
+    for (const item of sentences) {
+      try {
+        if (!item.id || !item.cs_transcript || !item.vi_equivalent) {
+          results.errors.push({
+            id: item.id || 'unknown',
+            error: 'Missing required fields (id, cs_transcript, vi_equivalent)'
+          });
+          results.skipped++;
+          continue;
+        }
+
+        const existing = await SentenceNewMake.findOne({ externalId: item.id });
+        if (existing) {
+          results.skipped++;
+          continue;
+        }
+
+        const newRecord = new SentenceNewMake({
+          externalId: item.id,
+          domain: item.domain || null,
+          csTranscript: item.cs_transcript,
+          viEquivalent: item.vi_equivalent,
+          alignment: (item.alignment || []).map(a => ({
+            source: a.source,
+            sourceLang: a.source_lang,
+            target: a.target,
+            targetLang: a.target_lang,
+            relation: a.relation
+          })),
+          status: 1,
+          createdBy: importedBy
+        });
+
+        await newRecord.save();
+        results.imported++;
+      } catch (err) {
+        results.errors.push({
+          id: item.id || 'unknown',
+          error: err.message
+        });
+        results.skipped++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Import completed: ${results.imported} imported, ${results.skipped} skipped`,
+      results
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+
 // Import JSON file data
 exports.importJson = async (req, res) => {
   try {
