@@ -14,28 +14,36 @@ const recordingNewMakeSchema = new mongoose.Schema(
       required: true,
     },
 
-    audioUrl: {
+    // Audio cho bản PlainText (csTranscript)
+    audioPlaintext: {
       type: String,
-      required: true,
-    },
-
-    type: {
-      type: String,
-      enum: ["plaintext", "content"],
-      required: true
-    },
-
-    isApproved: {
-      type: Number,
-      enum: [0, 1, 2, 3],
-      default: 0, // 0 = chờ duyệt, 1 = được duyệt, 2 = bị từ chối, 3 = không thể duyệt
-    },
-
-    duration: {
-      type: Number, // duration in seconds
       default: null,
     },
 
+    durationPlaintext: {
+      type: Number,
+      default: null,
+    },
+
+    // Audio cho bản Content (viEquivalent)
+    audioContent: {
+      type: String,
+      default: null,
+    },
+
+    durationContent: {
+      type: Number,
+      default: null,
+    },
+
+    // Trạng thái duyệt: 0=chờ duyệt, 1=được duyệt, 2=bị từ chối
+    isApproved: {
+      type: Number,
+      enum: [0, 1, 2],
+      default: 0,
+    },
+
+    // Thời gian ghi âm
     recordedAt: {
       type: Date,
       default: Date.now,
@@ -57,7 +65,7 @@ const recordingNewMakeSchema = new mongoose.Schema(
 );
 
 // Add indexes for performance
-recordingNewMakeSchema.index({ isApproved: 1, createdAt: -1 });
+recordingNewMakeSchema.index({ createdAt: -1 });
 recordingNewMakeSchema.index({ personId: 1 });
 recordingNewMakeSchema.index({ sentenceId: 1 });
 
