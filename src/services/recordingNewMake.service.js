@@ -140,6 +140,12 @@ const approveRecording = async (id) => {
   recording.isApproved = 1;
   await recording.save();
 
+  await Sentence.findByIdAndUpdate(recording.sentenceId, {
+    status: 2,
+    audioPlaintext: recording.audioPlaintext,
+    audioContent: recording.audioContent,
+  });
+
   return {
     RecordingID: recording._id,
     PersonID: recording.personId,

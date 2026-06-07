@@ -1,4 +1,5 @@
 const SentenceNewMake = require("../models/sentenceNewMake");
+const RecordingNewMake = require("../models/recordingNewMake");
 const Person = require("../models/person");
 
 // Create sentence (admin/manager)
@@ -504,12 +505,18 @@ exports.getApprovedSentencesWithoutRecordings = async (req, res) => {
     const limit = Math.min(100, parseInt(req.query.limit) || 20);
     const skip = (page - 1) * limit;
 
-    const sentences = await SentenceNewMake.find({ status: 1 })
+    const sentenceIdsWithRecordings = await RecordingNewMake.distinct('sentenceId');
+    const filterQuery = {
+      status: 1,
+      _id: { $nin: sentenceIdsWithRecordings }
+    };
+
+    const sentences = await SentenceNewMake.find(filterQuery)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
-    const totalCount = await SentenceNewMake.countDocuments({ status: 1 });
+    const totalCount = await SentenceNewMake.countDocuments(filterQuery);
 
     res.json({
       data: sentences,
