@@ -4,6 +4,27 @@ const Sentence = require("../models/sentenceNewMake");
 const Person = require("../models/person");
 const storage = require("./storage");
 
+const signStorageUrl = async (url) => {
+  if (!url) return url;
+  if (url.includes("wasabisys.com") || url.includes("s3.")) {
+    try {
+      const bucket = process.env.WASABI_BUCKET;
+      const parts = url.split(`${bucket}/`);
+      if (parts.length > 1) {
+        return await storage.getSignedUrl(parts[1]);
+      }
+    } catch (err) {
+      console.warn("Failed to sign storage URL:", err.message);
+    }
+  }
+  return url;
+};
+
+const convertToPcmWav = async (audioUrl) => {
+  const { convertToPcmWav: convert } = require("../utils/audio.utils");
+  return convert(audioUrl, storage);
+};
+
 // GET ALL
 const getAllRecordings = async (page = 1, limit = 20, status = null, email = null) => {
   const skip = (page - 1) * limit;
@@ -75,41 +96,8 @@ const getAllRecordings = async (page = 1, limit = 20, status = null, email = nul
       viEquivalent: r.sentenceId?.viEquivalent || null,
     };
 
-    // Sign URLs for audioPlaintext
-    if (r.audioPlaintext && (r.audioPlaintext.includes('wasabisys.com') || r.audioPlaintext.includes('s3.'))) {
-      try {
-        const bucket = process.env.WASABI_BUCKET;
-        const parts = r.audioPlaintext.split(`${bucket}/`);
-        if (parts.length > 1) {
-          m.AudioPlaintext = await storage.getSignedUrl(parts[1]);
-        } else {
-          m.AudioPlaintext = r.audioPlaintext;
-        }
-      } catch (err) {
-        console.warn("Failed to sign audioPlaintext URL:", err.message);
-        m.AudioPlaintext = r.audioPlaintext;
-      }
-    } else {
-      m.AudioPlaintext = r.audioPlaintext;
-    }
-
-    // Sign URLs for audioContent
-    if (r.audioContent && (r.audioContent.includes('wasabisys.com') || r.audioContent.includes('s3.'))) {
-      try {
-        const bucket = process.env.WASABI_BUCKET;
-        const parts = r.audioContent.split(`${bucket}/`);
-        if (parts.length > 1) {
-          m.AudioContent = await storage.getSignedUrl(parts[1]);
-        } else {
-          m.AudioContent = r.audioContent;
-        }
-      } catch (err) {
-        console.warn("Failed to sign audioContent URL:", err.message);
-        m.AudioContent = r.audioContent;
-      }
-    } else {
-      m.AudioContent = r.audioContent;
-    }
+    m.AudioPlaintext = await signStorageUrl(r.audioPlaintext);
+    m.AudioContent = await signStorageUrl(r.audioContent);
 
     m.durationPlaintext = r.durationPlaintext;
     m.durationContent = r.durationContent;
@@ -240,10 +228,154 @@ const deleteRecording = async (id) => {
   return { message: "Recording đã được xóa thành công" };
 };
 
+const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved = 1) => {
+  const archiver = require("archiver");
+
+  try {
+    const emailList = Array.isArray(emails) ? emails : [emails];
+
+    const parseDateTime = (dateStr, isEndOfDay = false) => {
+      if (!dateStr) return null;
+
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        throw new Error(`Invalid date format: ${dateStr}. Use YYYY-MM-DD or YYYY-MM-DD HH:mm:ss`);
+      }
+
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/) && !dateStr.includes(" ") && !dateStr.includes("T")) {
+        if (isEndOfDay) {
+          date.setHours(23, 59, 59, 999);
+        } else {
+          date.setHours(0, 0, 0, 0);
+        }
+      }
+
+      return date;
+    };
+
+    const dateFilter = {};
+    if (dateFrom || dateTo) {
+      if (dateFrom) {
+        dateFilter.$gte = parseDateTime(dateFrom, false);
+      }
+      if (dateTo) {
+        dateFilter.$lte = parseDateTime(dateTo, true);
+      }
+    }
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+
+    let totalRecordingCount = 0;
+    let firstRootFolder = null;
+
+    for (const emailOrId of emailList) {
+      let personId = emailOrId;
+      let personEmail = emailOrId;
+
+      const isObjectId = emailOrId.match(/^[0-9a-fA-F]{24}$/);
+
+      if (!isObjectId) {
+        const person = await Person.findOne({ email: emailOrId.toLowerCase() });
+        if (!person) {
+          console.warn(`Người dùng không tồn tại: ${emailOrId}`);
+          continue;
+        }
+        personId = person._id;
+        personEmail = person.email;
+      }
+
+      const filterQuery = { personId, isApproved };
+      if (Object.keys(dateFilter).length > 0) {
+        filterQuery.recordedAt = dateFilter;
+      }
+
+      const recordings = await Recording.find(filterQuery)
+        .populate("sentenceId", "csTranscript viEquivalent")
+        .sort({ recordedAt: -1 });
+
+      if (recordings.length === 0) {
+        console.warn(`Không tìm thấy recordings cho: ${personEmail}`);
+        continue;
+      }
+
+      const folderName = personEmail.replace(/[@.]/g, "_");
+      const now = new Date();
+      const dateTimeStr = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const rootFolder = `recordings_make_${folderName}_${dateTimeStr}`;
+
+      if (firstRootFolder === null) {
+        firstRootFolder = rootFolder;
+      }
+
+      for (const recording of recordings) {
+        const sentence = recording.sentenceId;
+        if (!sentence) {
+          continue;
+        }
+
+        const sentenceId = sentence._id.toString();
+        const recordingId = recording._id.toString();
+
+        const textContent = JSON.stringify({
+          plain_text: sentence.viEquivalent || "",
+          text_annotation: sentence.csTranscript || "",
+        }, null, 2);
+
+        archive.append(textContent, {
+          name: `${rootFolder}/text/${sentenceId}.txt`,
+        });
+
+        if (recording.audioPlaintext) {
+          try {
+            const pcmBuffer = await convertToPcmWav(recording.audioPlaintext);
+            if (pcmBuffer) {
+              archive.append(pcmBuffer, {
+                name: `${rootFolder}/audio/${sentenceId}_${recordingId}_plaintext.wav`,
+              });
+            }
+          } catch (error) {
+            console.error(`Lỗi khi tải file audio plaintext ${sentenceId}_${recordingId}:`, error.message);
+          }
+        }
+
+        if (recording.audioContent) {
+          try {
+            const pcmBuffer = await convertToPcmWav(recording.audioContent);
+            if (pcmBuffer) {
+              archive.append(pcmBuffer, {
+                name: `${rootFolder}/audio/${sentenceId}_${recordingId}_content.wav`,
+              });
+            }
+          } catch (error) {
+            console.error(`Lỗi khi tải file audio content ${sentenceId}_${recordingId}:`, error.message);
+          }
+        }
+      }
+
+      totalRecordingCount += recordings.length;
+    }
+
+    if (totalRecordingCount === 0) {
+      throw new Error("Không tìm thấy recordings nào cho người dùng nào");
+    }
+
+    archive.finalize();
+
+    return {
+      archive,
+      fileName: `${firstRootFolder}.zip`,
+      recordingCount: totalRecordingCount,
+    };
+  } catch (error) {
+    throw error;
+  }
+};
+
 module.exports = {
   getAllRecordings,
   approveRecording,
   rejectRecording,
   getRecordingsByStatus,
   deleteRecording,
+  downloadRecordingsBySpeaker,
 };
