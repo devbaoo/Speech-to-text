@@ -186,3 +186,63 @@ exports.deleteRecording = async (req, res) => {
     res.status(404).json({ message: err.message });
   }
 };
+
+exports.downloadRecordingsBySpeaker = async (req, res) => {
+  try {
+    let { emails, personId, dateFrom, dateTo, isApproved } = req.query;
+
+    if (personId && !emails) {
+      emails = personId;
+    }
+
+    if (!emails) {
+      return res.status(400).json({
+        success: false,
+        message: "Thiếu email hoặc emails (comma-separated)",
+      });
+    }
+
+    const emailList = emails.split(",").map((e) => e.trim()).filter((e) => e);
+
+    if (emailList.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Danh sách email trống",
+      });
+    }
+
+    const approvalStatus = isApproved ? parseInt(isApproved) : 1;
+
+    const { archive, fileName, recordingCount } = await recordingService.downloadRecordingsBySpeaker(
+      emailList,
+      dateFrom,
+      dateTo,
+      approvalStatus
+    );
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.setHeader("X-Recording-Count", recordingCount);
+
+    archive.pipe(res);
+
+    archive.on("error", (err) => {
+      console.error("Archive error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: "Lỗi khi tạo file download",
+          error: err.message,
+        });
+      }
+    });
+  } catch (err) {
+    console.error("Download error:", err);
+    if (!res.headersSent) {
+      res.status(400).json({
+        success: false,
+        message: err.message,
+      });
+    }
+  }
+};
