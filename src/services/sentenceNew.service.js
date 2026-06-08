@@ -116,6 +116,7 @@ exports.createUserSentence = async (content, userName = null, personId = null, p
 
 const mapDownloadRow = (doc) => ({
     sentenceId: doc._id.toString(),
+    externalId: doc.externalId || null,
     plain_text: doc.plainText || null,
     text_annotation: doc.content
 });
@@ -129,7 +130,7 @@ exports.downloadSentences = async (mode = "all") => {
 
     if (mode === "all") {
         const sentences = await Sentence.find()
-            .select("content plainText createdAt status createdBy")
+            .select("externalId content plainText createdAt status createdBy")
             .sort({ createdAt: -1 });
 
         const sentenceIds = sentences.map(s => s._id);
@@ -158,7 +159,7 @@ exports.downloadSentences = async (mode = "all") => {
 
     if (mode === "with-audio") {
         const recordings = await Recording.find({ isApproved: { $in: [0, 1] } })
-            .populate("sentenceId", "content plainText status createdAt createdBy")
+            .populate("sentenceId", "externalId content plainText status createdAt createdBy")
             .sort({ recordedAt: -1 });
 
         const mapBySentence = {};
@@ -183,7 +184,7 @@ exports.downloadSentences = async (mode = "all") => {
 
     if (mode === "approved") {
         const recordings = await Recording.find({ isApproved: 1 })
-            .populate("sentenceId", "content plainText status createdAt createdBy")
+            .populate("sentenceId", "externalId content plainText status createdAt createdBy")
             .sort({ recordedAt: -1 });
 
         const mapBySentence = {};
