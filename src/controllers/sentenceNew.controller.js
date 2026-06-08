@@ -94,6 +94,7 @@ exports.downloadSentences = async (req, res) => {
     archive.pipe(res);
 
     for (const item of data) {
+      const filePrefix = item.externalId || item.sentenceId;
       const textContent = JSON.stringify(
         {
           plain_text: item.plain_text ?? "",
@@ -103,16 +104,15 @@ exports.downloadSentences = async (req, res) => {
         2
       );
       archive.append(textContent + "\n", {
-        name: `text/${item.sentenceId}.txt`
+        name: `text/${filePrefix}.txt`
       });
       for (const rec of item.recordings || []) {
         try {
           const pcmBuffer = await _convertToPcmWav(rec.AudioUrl);
           if (pcmBuffer) {
-            const sentenceId = item.sentenceId;
             const recordingId = rec.RecordingID;
             archive.append(pcmBuffer, {
-              name: `audio/${sentenceId}_${recordingId}.wav`
+              name: `audio/${filePrefix}_${recordingId}.wav`
             });
           }
         } catch (err) {
