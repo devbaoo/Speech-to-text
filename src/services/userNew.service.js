@@ -1,6 +1,6 @@
 const Person = require("../models/person");
-const RecordingNew = require("../models/recordingNew");
-const SentenceNew = require("../models/sentenceNew");
+const RecordingNewMake = require("../models/recordingNewMake");
+const SentenceNewMake = require("../models/sentenceNewMake");
 const { toPublicUser } = require("../utils/person.mapper");
 
 exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
@@ -26,8 +26,8 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
     const totalMale = await Person.countDocuments({ gender: "Male" });
     const totalFemale = await Person.countDocuments({ gender: "Female" });
 
-    // Global stats: tong so cau da lam (recording_new isApproved = 1)
-    const totalCompletedSentencesAgg = await RecordingNew.aggregate([
+    // Global stats: tổng số recording đã duyệt trong recording_new_make
+    const totalCompletedSentencesAgg = await RecordingNewMake.aggregate([
         { $match: { isApproved: 1 } },
         { $group: { _id: null, totalCount: { $sum: 1 } } }
     ]);
@@ -48,20 +48,32 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
 
     const allUserIds = allRows.map(r => r._id);
 
-    // Get recordings stats for ALL users (recording_new: isApproved = 0, 1)
+    // Get recordings stats for ALL users from recording_new_make
     const recordingMatch = { personId: { $in: allUserIds }, isApproved: { $in: [0, 1] } };
     if (Object.keys(dateQuery).length) recordingMatch.recordedAt = dateQuery;
 
-    const recordingStats = await RecordingNew.aggregate([
+    const recordingStats = await RecordingNewMake.aggregate([
         { $match: recordingMatch },
+        {
+            $project: {
+                personId: 1,
+                isApproved: 1,
+                totalDuration: {
+                    $add: [
+                        { $ifNull: ["$durationPlaintext", 0] },
+                        { $ifNull: ["$durationContent", 0] }
+                    ]
+                }
+            }
+        },
         {
             $group: {
                 _id: "$personId",
                 recordingCount: { $sum: 1 },
-                totalDuration: { $sum: { $ifNull: ["$duration", 0] } },
+                totalDuration: { $sum: "$totalDuration" },
                 approvedCount: { $sum: { $cond: [{ $eq: ["$isApproved", 1] }, 1, 0] } },
                 pendingCount: { $sum: { $cond: [{ $eq: ["$isApproved", 0] }, 1, 0] } },
-                approvedDuration: { $sum: { $cond: [{ $eq: ["$isApproved", 1] }, { $ifNull: ["$duration", 0] }, 0] } }
+                approvedDuration: { $sum: { $cond: [{ $eq: ["$isApproved", 1] }, "$totalDuration", 0] } }
             }
         }
     ]);
@@ -77,8 +89,8 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
         };
     });
 
-    // Get sentence contributions for ALL users (sentence_new: status 0 hoac 1, createdBy != null)
-    const contributionStats = await SentenceNew.aggregate([
+    // Get sentence contributions for ALL users from sentence_new_make
+    const contributionStats = await SentenceNewMake.aggregate([
         {
             $match: {
                 createdBy: { $in: allRows.map(r => r.email) },
@@ -93,7 +105,6 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
         contributionMap[stat._id] = stat.count;
     });
 
-    // Build users array and sort by TotalRecordings descending
     const allUsersWithStats = allRows.map(u => ({
         ...u,
         TotalRecordings: recordingMap[u._id.toString()]?.count || 0,
@@ -110,7 +121,6 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
     const paginatedUserIds = paginatedUsers.map(u => u._id);
     const paginatedUserEmails = paginatedUsers.map(u => u.email);
 
-    // Get detailed recordings for paginated users
     const userRecordingsMap = {};
     for (const userId of paginatedUserIds) {
         const recQuery = {
@@ -119,35 +129,34 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
         };
         if (Object.keys(dateQuery).length) recQuery.recordedAt = dateQuery;
 
-        const userRecordings = await RecordingNew.find(recQuery)
-            .populate("sentenceId", "content")
-            .select("sentenceId duration recordedAt audioUrl isApproved")
+        const userRecordings = await RecordingNewMake.find(recQuery)
+            .populate("sentenceId", "viEquivalent csTranscript")
+            .select("sentenceId durationPlaintext durationContent recordedAt audioPlaintext audioContent isApproved")
             .sort({ recordedAt: -1 })
             .lean();
 
         userRecordingsMap[userId.toString()] = userRecordings.map(r => ({
             SentenceID: r.sentenceId?._id || r.sentenceId,
-            Content: r.sentenceId?.content || null,
-            Duration: r.duration || null,
+            Content: r.sentenceId?.viEquivalent || r.sentenceId?.csTranscript || null,
+            Duration: (r.durationPlaintext || 0) + (r.durationContent || 0) || null,
             RecordedAt: r.recordedAt,
-            AudioUrl: r.audioUrl || null,
+            AudioUrl: r.audioContent || r.audioPlaintext || null,
             IsApproved: r.isApproved
         }));
     }
 
-    // Get detailed sentence contributions for paginated users
     const userContributionsMap = {};
-    for (const email of paginatedUserEmails) {
-        const userSentences = await SentenceNew.find({
-            createdBy: email,
+    for (const userEmail of paginatedUserEmails) {
+        const userSentences = await SentenceNewMake.find({
+            createdBy: userEmail,
             status: { $in: [0, 1] }
         })
-            .select("content createdAt status")
+            .select("viEquivalent csTranscript createdAt status")
             .lean();
 
-        userContributionsMap[email] = userSentences.map(s => ({
+        userContributionsMap[userEmail] = userSentences.map(s => ({
             SentenceID: s._id,
-            Content: s.content,
+            Content: s.viEquivalent || s.csTranscript,
             Status: s.status,
             CreatedAt: s.createdAt
         }));
