@@ -239,7 +239,8 @@ exports.downloadRecordingsBySpeaker = async (req, res) => {
   } catch (err) {
     console.error("Download error:", err);
     if (!res.headersSent) {
-      res.status(400).json({
+      const statusCode = err.message === "Không tìm thấy recordings nào cho người dùng nào" ? 404 : 400;
+      res.status(statusCode).json({
         success: false,
         message: err.message,
       });
