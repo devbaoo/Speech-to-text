@@ -290,7 +290,7 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
       }
 
       const recordings = await Recording.find(filterQuery)
-        .populate("sentenceId", "csTranscript viEquivalent")
+        .populate("sentenceId", "externalId csTranscript viEquivalent")
         .sort({ recordedAt: -1 });
 
       if (recordings.length === 0) {
@@ -314,7 +314,7 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         }
 
         const sentenceId = sentence._id.toString();
-        const recordingId = recording._id.toString();
+        const filePrefix = sentence.externalId || sentenceId;
 
         const textContent = JSON.stringify({
           plain_text: sentence.viEquivalent || "",
@@ -322,7 +322,7 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         }, null, 2);
 
         archive.append(textContent, {
-          name: `${rootFolder}/text/${sentenceId}.txt`,
+          name: `${rootFolder}/text/${filePrefix}.txt`,
         });
 
         if (recording.audioPlaintext) {
@@ -330,11 +330,11 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
             const pcmBuffer = await convertToPcmWav(recording.audioPlaintext);
             if (pcmBuffer) {
               archive.append(pcmBuffer, {
-                name: `${rootFolder}/audio/${sentenceId}_${recordingId}_plaintext.wav`,
+                name: `${rootFolder}/audio/${filePrefix}_plain.wav`,
               });
             }
           } catch (error) {
-            console.error(`Lỗi khi tải file audio plaintext ${sentenceId}_${recordingId}:`, error.message);
+            console.error(`Lỗi khi tải file audio plaintext ${filePrefix}_plain:`, error.message);
           }
         }
 
@@ -343,11 +343,11 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
             const pcmBuffer = await convertToPcmWav(recording.audioContent);
             if (pcmBuffer) {
               archive.append(pcmBuffer, {
-                name: `${rootFolder}/audio/${sentenceId}_${recordingId}_content.wav`,
+                name: `${rootFolder}/audio/${filePrefix}_content.wav`,
               });
             }
           } catch (error) {
-            console.error(`Lỗi khi tải file audio content ${sentenceId}_${recordingId}:`, error.message);
+            console.error(`Lỗi khi tải file audio content ${filePrefix}_content:`, error.message);
           }
         }
       }
