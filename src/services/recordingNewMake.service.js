@@ -290,7 +290,8 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
       }
 
       const recordings = await Recording.find(filterQuery)
-        .populate("sentenceId", "externalId csTranscript viEquivalent")
+        .populate("personId", "email")
+        .populate("sentenceId", "externalId domain csTranscript viEquivalent alignment")
         .sort({ recordedAt: -1 });
 
       if (recordings.length === 0) {
@@ -317,8 +318,20 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         const filePrefix = sentence.externalId || sentenceId;
 
         const textContent = JSON.stringify({
-          plain_text: sentence.viEquivalent || "",
-          text_annotation: sentence.csTranscript || "",
+          id: filePrefix,
+          speaker: recording.personId?.email || personEmail,
+          domain: sentence.domain || null,
+          cs_transcript: sentence.csTranscript || "",
+          vi_equivalent: sentence.viEquivalent || "",
+          alignment: Array.isArray(sentence.alignment)
+            ? sentence.alignment.map((item) => ({
+                source: item.source || "",
+                source_lang: item.sourceLang || "",
+                target: item.target || "",
+                target_lang: item.targetLang || "",
+                relation: item.relation || "",
+              }))
+            : [],
         }, null, 2);
 
         archive.append(textContent, {
