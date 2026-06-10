@@ -94,7 +94,7 @@ exports.downloadSentences = async (req, res) => {
     archive.pipe(res);
 
     for (const item of data) {
-      const filePrefix = item.externalId || item.sentenceId;
+      const filePrefix = item.sentenceId;
       const textContent = JSON.stringify(
         {
           plain_text: item.plain_text ?? "",

@@ -116,7 +116,6 @@ exports.createUserSentence = async (content, userName = null, personId = null, p
 
 const mapDownloadRow = (doc) => ({
     sentenceId: doc._id.toString(),
-    externalId: doc.externalId || null,
     plain_text: doc.plainText || null,
     text_annotation: doc.content
 });
@@ -130,13 +129,16 @@ exports.downloadSentences = async (mode = "all") => {
 
     if (mode === "all") {
         const sentences = await Sentence.find()
-            .select("externalId content plainText createdAt status createdBy")
+            .select("content plainText createdAt status createdBy")
             .sort({ createdAt: -1 });
 
-        const sentenceIds = sentences.map(s => s._id);
-        const recordings = await Recording.find({ sentenceId: { $in: sentenceIds } })
+        const sentenceIds = sentences.map(s => s._id.toString());
+        const recordings = await Recording.find({
+            sentenceId: { $in: sentenceIds }
+        })
             .select("audioUrl isApproved recordedAt personId sentenceId")
-            .sort({ recordedAt: -1 });
+            .sort({ recordedAt: -1 })
+            .lean();
 
         const recordingsBySentence = {};
         recordings.forEach(r => {
