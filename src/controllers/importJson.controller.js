@@ -211,7 +211,7 @@ const parseNewUserRows = (fileContent) => {
   return { rows, errors };
 };
 
-const importNewUserText = async (req, res, next) => {
+const importNewSentenceText = async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'Vui long upload file TXT hoac Markdown!' });
@@ -233,9 +233,9 @@ const importNewUserText = async (req, res, next) => {
     fs.unlinkSync(req.file.path);
 
     res.status(200).json({
-      message: 'Import new_user thanh cong!',
+      message: 'Import new_sentence thanh cong!',
       summary: {
-        collection: 'new_user',
+        collection: 'new_sentence',
         totalParsed: rows.length,
         success: inserted.length,
         skippedLines: errors.length
@@ -256,5 +256,5 @@ const importNewUserText = async (req, res, next) => {
 module.exports = {
   importJson,
   importJsonByUrl,
-  importNewUserText
+  importNewSentenceText
 };

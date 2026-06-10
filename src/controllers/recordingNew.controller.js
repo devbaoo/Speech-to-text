@@ -17,23 +17,18 @@ const APPROVED_EMAILS = [
 exports.uploadAudio = async (req, res) => {
   try {
     const { personId, sentenceId, type } = req.body;
-
-    // Validate required fields
     if (!personId || !sentenceId) {
       return res.status(400).json({
         success: false,
         message: "Thiếu personId hoặc sentenceId",
       });
     }
-
-    // Validate type field
     if (!type || !["plaintext", "content"].includes(type)) {
       return res.status(400).json({
         success: false,
         message: "Thiếu hoặc sai type (chỉ chấp nhận: plaintext, content)",
       });
     }
-
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -61,8 +56,6 @@ exports.uploadAudio = async (req, res) => {
       duration: uploadResult.metadata?.duration || null,
       recordedAt: new Date(),
     });
-
-    // Sau khi tạo recording, kiểm tra xem đã đủ 2 bản chưa
     const recordingsForSentence = await Recording.find({
       sentenceId: sentenceId,
       savedToSentence: false
