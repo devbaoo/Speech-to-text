@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
+const NewUser = require('../models/newUser');
 
 const VALID_COLLECTIONS = ['sentence', 'Person', 'person', 'sentence_new', 'recording', 'recording_new', 'user_new'];
 
@@ -178,7 +179,82 @@ const importJsonByUrl = async (req, res, next) => {
   }
 };
 
+const parseNewUserRows = (fileContent) => {
+  const rows = [];
+  const errors = [];
+  const lineRegex = /^\s*-\s*\*\*([A-Za-z0-9]+)-([A-Za-z0-9]+)-([A-Za-z0-9]+):\*\*\s*(.*)$/;
+
+  fileContent.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+
+    const match = trimmed.match(lineRegex);
+    if (!match) {
+      errors.push({
+        line: index + 1,
+        content: line,
+        error: 'Dong khong dung dinh dang "- **DOMAIN-TOPIC-Uxx:** noi dung"'
+      });
+      return;
+    }
+
+    rows.push({
+      domainCode: match[1],
+      topic: match[2],
+      sentenceOrder: match[3],
+      content: match[4].trim(),
+      status: 1,
+      createdBy: null
+    });
+  });
+
+  return { rows, errors };
+};
+
+const importNewUserText = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Vui long upload file TXT hoac Markdown!' });
+    }
+
+    const fileContent = fs.readFileSync(req.file.path, 'utf8');
+    const { rows, errors } = parseNewUserRows(fileContent);
+
+    if (rows.length === 0) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({
+        message: 'File khong co dong hop le de import!',
+        errors
+      });
+    }
+
+    const inserted = await NewUser.insertMany(rows, { ordered: false });
+
+    fs.unlinkSync(req.file.path);
+
+    res.status(200).json({
+      message: 'Import new_user thanh cong!',
+      summary: {
+        collection: 'new_user',
+        totalParsed: rows.length,
+        success: inserted.length,
+        skippedLines: errors.length
+      },
+      errors: errors.length > 0 ? errors : undefined,
+      data: inserted
+    });
+  } catch (error) {
+    if (req.file && req.file.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {}
+    }
+    next(error);
+  }
+};
+
 module.exports = {
   importJson,
-  importJsonByUrl
+  importJsonByUrl,
+  importNewUserText
 };
