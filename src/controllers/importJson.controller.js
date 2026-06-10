@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
-const NewUser = require('../models/newUser');
+const NewSentence = require('../models/newSentence');
 
 const VALID_COLLECTIONS = ['sentence', 'Person', 'person', 'sentence_new', 'recording', 'recording_new', 'user_new'];
 
@@ -179,7 +179,7 @@ const importJsonByUrl = async (req, res, next) => {
   }
 };
 
-const parseNewUserRows = (fileContent) => {
+const parseSentenceRows = (fileContent) => {
   const rows = [];
   const errors = [];
   const lineRegex = /^\s*-\s*\*\*([A-Za-z0-9]+)-([A-Za-z0-9]+)-([A-Za-z0-9]+):\*\*\s*(.*)$/;
@@ -218,7 +218,7 @@ const importNewSentenceText = async (req, res, next) => {
     }
 
     const fileContent = fs.readFileSync(req.file.path, 'utf8');
-    const { rows, errors } = parseNewUserRows(fileContent);
+    const { rows, errors } = parseSentenceRows(fileContent);
 
     if (rows.length === 0) {
       fs.unlinkSync(req.file.path);
@@ -228,7 +228,7 @@ const importNewSentenceText = async (req, res, next) => {
       });
     }
 
-    const inserted = await NewUser.insertMany(rows, { ordered: false });
+    const inserted = await NewSentence.insertMany(rows, { ordered: false });
 
     fs.unlinkSync(req.file.path);
 

@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const newUserSchema = new mongoose.Schema(
+const newSentenceSchema = new mongoose.Schema(
   {
     domainCode: {
       type: String,
@@ -32,7 +32,7 @@ const newUserSchema = new mongoose.Schema(
     }
   },
   {
-    collection: 'new_user',
+    collection: 'new_sentence',
     timestamps: {
       createdAt: 'createdAt',
       updatedAt: false
@@ -40,6 +40,6 @@ const newUserSchema = new mongoose.Schema(
   }
 );
 
-newUserSchema.index({ domainCode: 1, topic: 1, sentenceOrder: 1 });
+newSentenceSchema.index({ domainCode: 1, topic: 1, sentenceOrder: 1 });
 
-module.exports = mongoose.model('new_user', newUserSchema);
+module.exports = mongoose.model('new_sentence', newSentenceSchema);
