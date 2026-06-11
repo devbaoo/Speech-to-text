@@ -3,6 +3,7 @@ const fs = require("fs");
 const NewRecording = require("../models/newRecording");
 const Sentence = require("../models/newSentence");
 const Person = require("../models/person");
+const UserNew = require("../models/userNew");
 const { mapNewRecording } = require("../utils/newRecording.mapper");
 const storage = require("./storage");
 
@@ -335,7 +336,11 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
     let firstRootFolder = null;
 
     const processRecordingsForPerson = async (personId, personEmail) => {
-      const filterQuery = { isApproved };
+      const filterQuery = {};
+      // Only filter by isApproved if it's a valid positive number
+      if (typeof isApproved === 'number' && isApproved > 0) {
+        filterQuery.isApproved = isApproved;
+      }
       if (personId) {
         filterQuery.personId = personId;
       }
@@ -410,9 +415,11 @@ ${sentence.content}
     };
 
     if (isDownloadAll) {
-      // Download all recordings grouped by person
+      // Download all recordings grouped by person (from both Person and UserNew)
       const allPersons = await Person.find({}).select("_id email");
-      for (const person of allPersons) {
+      const allUserNews = await UserNew.find({}).select("_id email");
+      const allUsers = [...allPersons, ...allUserNews];
+      for (const person of allUsers) {
         const count = await processRecordingsForPerson(person._id, person.email);
         if (count > 0) userIndex++;
         totalRecordingCount += count;
@@ -426,7 +433,11 @@ ${sentence.content}
         const isObjectId = emailOrId.match(/^[0-9a-fA-F]{24}$/);
 
         if (!isObjectId) {
-          const person = await Person.findOne({ email: emailOrId.toLowerCase() });
+          // Try both Person and UserNew collections
+          let person = await Person.findOne({ email: emailOrId.toLowerCase() });
+          if (!person) {
+            person = await UserNew.findOne({ email: emailOrId.toLowerCase() });
+          }
           if (!person) {
             console.warn(`Người dùng không tồn tại: ${emailOrId}`);
             continue;
