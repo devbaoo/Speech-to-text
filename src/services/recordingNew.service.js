@@ -375,7 +375,13 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         personEmail = person.email;
       }
 
-      const filterQuery = { personId, isApproved };
+      // Build filter query - nếu isApproved là undefined/null thì lấy tất cả
+      const filterQuery = {};
+      if (isApproved !== undefined && isApproved !== null) {
+        filterQuery.isApproved = isApproved;
+      }
+      filterQuery.personId = personId;
+      
       if (Object.keys(dateFilter).length > 0) {
         filterQuery.recordedAt = dateFilter;
       }
