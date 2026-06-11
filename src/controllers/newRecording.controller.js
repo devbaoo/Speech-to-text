@@ -16,11 +16,11 @@ const APPROVED_EMAILS = [
 
 exports.uploadAudio = async (req, res) => {
   try {
-    const { personId, sentenceId, type } = req.body;
-    if (!personId || !sentenceId) {
+    const { personId, sentenceId, type, email } = req.body;
+    if (!sentenceId) {
       return res.status(400).json({
         success: false,
-        message: "Thiếu personId hoặc sentenceId",
+        message: "Thiếu sentenceId",
       });
     }
     if (!type || !["plaintext", "content"].includes(type)) {
@@ -36,6 +36,16 @@ exports.uploadAudio = async (req, res) => {
       });
     }
 
+    let personIdValue = personId || null;
+    let emailValue = email || null;
+
+    if (personIdValue) {
+      const person = await Person.findById(personIdValue);
+      if (person) {
+        emailValue = person.email;
+      }
+    }
+
     const uploadResult = await storage.upload(
       req.file.buffer,
       req.file.originalname,
@@ -43,17 +53,17 @@ exports.uploadAudio = async (req, res) => {
       { folder: "lesson_audio" }
     );
 
-    const person = await Person.findById(personId);
-    const isAutoApproved = person && APPROVED_EMAILS.includes(person.email.toLowerCase());
+    const isAutoApproved = emailValue && APPROVED_EMAILS.includes(emailValue.toLowerCase());
 
     const recording = await NewRecording.create({
-      personId,
+      personId: personIdValue,
       sentenceId,
       audioUrl: uploadResult.url,
       type: type,
       isApproved: isAutoApproved ? 1 : 0,
       duration: uploadResult.metadata?.duration || null,
       recordedAt: new Date(),
+      email: emailValue,
     });
 
     res.status(201).json({

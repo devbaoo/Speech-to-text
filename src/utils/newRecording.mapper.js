@@ -8,7 +8,7 @@ exports.mapNewRecording = (row) => {
     IsApproved: row.isApproved,
     Duration: row.duration || null,
     RecordedAt: row.recordedAt,
-    Email: row.personId?.email || null,
+    Email: row.email || row.personId?.email || null,
     DomainCode: row.sentenceId?.domainCode || null,
     Topic: row.sentenceId?.topic || null,
     SentenceOrder: row.sentenceId?.sentenceOrder || null,

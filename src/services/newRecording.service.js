@@ -39,12 +39,20 @@ const getAllRecordings = async (page = 1, limit = 20, status = null, email = nul
   }
 
   if (email) {
+    // First try to find by email field directly on recording
+    const byEmailField = await NewRecording.find({
+      email: { $regex: email, $options: "i" }
+    }).select("_id");
+
+    // Also find by person email (backward compatibility)
     const persons = await Person.find({
       email: { $regex: email, $options: "i" }
     }).select("_id");
 
     const personIds = persons.map((p) => p._id);
-    if (!personIds.length) {
+    const recordingIds = byEmailField.map((r) => r._id);
+
+    if (!personIds.length && !recordingIds.length) {
       return {
         recordings: [],
         count: 0,
@@ -59,7 +67,10 @@ const getAllRecordings = async (page = 1, limit = 20, status = null, email = nul
       };
     }
 
-    filterQuery.personId = { $in: personIds };
+    filterQuery.$or = [
+      { personId: { $in: personIds } },
+      { _id: { $in: recordingIds } }
+    ];
   }
 
   const recordings = await NewRecording.find(filterQuery)

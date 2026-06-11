@@ -44,6 +44,13 @@ const newRecordingSchema = new mongoose.Schema(
     savedToSentence: {
       type: Boolean,
       default: false
+    },
+
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: null
     }
   },
   {
@@ -56,5 +63,6 @@ const newRecordingSchema = new mongoose.Schema(
 newRecordingSchema.index({ isApproved: 1, createdAt: -1 });
 newRecordingSchema.index({ personId: 1 });
 newRecordingSchema.index({ sentenceId: 1 });
+newRecordingSchema.index({ email: 1 });
 
 module.exports = mongoose.model("new_recording", newRecordingSchema);
