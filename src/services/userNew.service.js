@@ -1,7 +1,6 @@
-const Person = require("../models/person");
+const UserNew = require("../models/userNew");
 const NewRecording = require("../models/newRecording");
 const NewSentence = require("../models/newSentence");
-const { toPublicUser } = require("../utils/person.mapper");
 
 // ========================
 // GET ALL USERS
@@ -20,14 +19,14 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
         emailQuery.$options = "i";
     }
 
-    const personFindQuery = Object.keys(emailQuery).length ? { email: emailQuery } : {};
-    const allRows = await Person.find(personFindQuery)
-        .select("email gender role createdAt")
+    const userFindQuery = Object.keys(emailQuery).length ? { email: emailQuery } : {};
+    const allRows = await UserNew.find(userFindQuery)
+        .select("email name gender role createdAt")
         .lean();
 
     const totalCount = allRows.length;
-    const totalMale = await Person.countDocuments({ gender: "Male" });
-    const totalFemale = await Person.countDocuments({ gender: "Female" });
+    const totalMale = await UserNew.countDocuments({ gender: "Male" });
+    const totalFemale = await UserNew.countDocuments({ gender: "Female" });
 
     // Global stats: tổng số recording đã duyệt trong new_recording
     const totalCompletedSentencesAgg = await NewRecording.aggregate([
@@ -156,7 +155,12 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
     }
 
     const users = paginatedUsers.map(u => ({
-        ...toPublicUser(u),
+        _id: u._id,
+        email: u.email,
+        name: u.name || '',
+        gender: u.gender,
+        role: u.role,
+        createdAt: u.createdAt,
         TotalRecordings: u.TotalRecordings,
         TotalRecordingDuration: u.TotalRecordingDuration,
         ApprovedRecordings: u.ApprovedRecordings,
@@ -184,7 +188,7 @@ exports.getUsers = async (page = 1, limit = 20, filter = {}) => {
 // ========================
 exports.getUserById = async (userId) => {
     if (!userId) throw new Error("userId is required");
-    const user = await Person.findById(userId).lean();
+    const user = await UserNew.findById(userId).lean();
     if (!user) throw new Error("User not found");
 
     // approved recordings by this user
@@ -246,15 +250,16 @@ exports.getUserById = async (userId) => {
 // ========================
 exports.createGuest = async (data) => {
     const email = data.email.trim().toLowerCase();
-    const allUsers = await Person.find({}, "email");
+    const allUsers = await UserNew.find({}, "email");
     const existingUser = allUsers.find((user) => user.email === email);
 
     if (existingUser) {
-        return { user: await Person.findOne({ _id: existingUser._id }), existed: true };
+        return { user: await UserNew.findOne({ _id: existingUser._id }), existed: true };
     }
 
-    const created = await Person.create({
+    const created = await UserNew.create({
         email,
+        name: data.name || '',
         gender: data.gender,
         role: "User",
     });
@@ -267,7 +272,7 @@ exports.createGuest = async (data) => {
 exports.loginUser = async (email) => {
     if (!email) throw new Error("Email is required");
     const normalized = email.trim().toLowerCase();
-    const user = await Person.findOne({ email: normalized });
+    const user = await UserNew.findOne({ email: normalized });
     if (!user) throw new Error("User not found");
     return user;
 };
@@ -281,7 +286,7 @@ exports.updateUserName = async (id, newName) => {
     }
 
     const trimmedName = newName.trim();
-    const allUsers = await Person.find({ _id: { $ne: id } }, 'name');
+    const allUsers = await UserNew.find({ _id: { $ne: id } }, 'name');
     const existingUser = allUsers.find(user =>
         user.name && user.name.toLowerCase() === trimmedName.toLowerCase()
     );
@@ -290,7 +295,7 @@ exports.updateUserName = async (id, newName) => {
         throw new Error("Tên người dùng đã tồn tại");
     }
 
-    const updatedUser = await Person.findByIdAndUpdate(
+    const updatedUser = await UserNew.findByIdAndUpdate(
         id,
         { name: trimmedName },
         { new: true }
@@ -307,7 +312,7 @@ exports.updateUserName = async (id, newName) => {
 // DELETE USER
 // ========================
 exports.deleteUser = async (id) => {
-    const deletedUser = await Person.findByIdAndDelete(id);
+    const deletedUser = await UserNew.findByIdAndDelete(id);
 
     if (!deletedUser) {
         throw new Error("User không tồn tại");
@@ -330,13 +335,13 @@ exports.searchUserByEmail = async (email, page = 1, limit = 20) => {
         email: { $regex: email.trim(), $options: "i" }
     };
 
-    const users = await Person.find(query)
-        .select("email gender role createdAt")
+    const users = await UserNew.find(query)
+        .select("email name gender role createdAt")
         .skip(skip)
         .limit(limit)
         .sort({ createdAt: -1 });
 
-    const totalCount = await Person.countDocuments(query);
+    const totalCount = await UserNew.countDocuments(query);
 
     const userIds = users.map(u => u._id);
 
@@ -361,7 +366,12 @@ exports.searchUserByEmail = async (email, page = 1, limit = 20) => {
     const result = users.map(user => {
         const stats = statsMap[user._id.toString()] || {};
         return {
-            ...toPublicUser(user),
+            _id: user._id,
+            email: user.email,
+            name: user.name || '',
+            gender: user.gender,
+            role: user.role,
+            createdAt: user.createdAt,
             recordingCount: stats.recordingCount || 0,
             approvedCount: stats.approvedCount || 0,
             pendingCount: stats.pendingCount || 0,
@@ -404,13 +414,14 @@ exports.getUsersByRecordingCount = async (statusFilter = null, limit = 10) => {
     ]);
 
     const userIds = recordingStats.map(stat => stat._id);
-    const persons = await Person.find({ _id: { $in: userIds } });
+    const users = await UserNew.find({ _id: { $in: userIds } });
 
     return recordingStats.map(stat => {
-        const user = persons.find(u => u._id.toString() === stat._id.toString());
+        const user = users.find(u => u._id.toString() === stat._id.toString());
         return {
-            userId: user?._id,
+            _id: user?._id,
             email: user?.email,
+            name: user?.name || '',
             gender: user?.gender,
             totalRecordings: stat.recordingCount,
             approvedRecordings: stat.approvedCount,
@@ -452,17 +463,19 @@ exports.getUsersBySentenceCount = async (limit = null) => {
         };
     });
 
-    const persons = await Person.find().select("email gender role createdAt");
+    const users = await UserNew.find().select("email name gender role createdAt");
 
     const results = [];
-    for (const user of persons) {
+    for (const user of users) {
         const email = user.email;
         const stat = statsMap[email] || { totalSentences: 0, status0Count: 0, status1Count: 0 };
-        const personId = user._id;
+        const userId = user._id;
 
         results.push({
-            userEmail: email,
-            userId: personId,
+            _id: userId,
+            email: email,
+            name: user.name || '',
+            gender: user.gender,
             totalSentences: stat.totalSentences,
             status0Count: stat.status0Count,
             status1Count: stat.status1Count,
@@ -508,19 +521,19 @@ exports.getTopContributors = async (page = 1, limit = 10) => {
     }
 
     const allEmails = allStats.map(s => s._id).filter(Boolean);
-    const allPersons = allEmails.length
-        ? await Person.find({ email: { $in: allEmails } }).select("email gender role createdAt").lean()
+    const allUsers = allEmails.length
+        ? await UserNew.find({ email: { $in: allEmails } }).select("email name gender role createdAt").lean()
         : [];
 
-    const personByEmail = {};
-    allPersons.forEach(p => {
-        personByEmail[p.email] = p;
+    const userByEmail = {};
+    allUsers.forEach(u => {
+        userByEmail[u.email] = u;
     });
 
-    const allPersonIds = allPersons.map(p => p._id);
-    const allRecordingStats = allPersonIds.length
+    const allUserIds = allUsers.map(u => u._id);
+    const allRecordingStats = allUserIds.length
         ? await NewRecording.aggregate([
-            { $match: { personId: { $in: allPersonIds } } },
+            { $match: { personId: { $in: allUserIds } } },
             {
                 $group: {
                     _id: "$personId",
@@ -539,25 +552,26 @@ exports.getTopContributors = async (page = 1, limit = 10) => {
         };
     });
 
-    const allUsers = allStats.map(s => {
+    const allUserData = allStats.map(s => {
         const email = s._id;
-        const p = personByEmail[email] || null;
-        const recordingInfo = p?._id ? recordingMap[p._id.toString()] : null;
+        const u = userByEmail[email] || null;
+        const recordingInfo = u?._id ? recordingMap[u._id.toString()] : null;
         return {
-            userId: p?._id || null,
+            _id: u?._id || null,
             email,
-            gender: p?.gender || null,
-            role: p?.role || null,
-            createdAt: p?.createdAt || null,
+            name: u?.name || '',
+            gender: u?.gender || null,
+            role: u?.role || null,
+            createdAt: u?.createdAt || null,
             TotalContributedSentences: s.TotalContributedSentences || 0,
             TotalRecordings: recordingInfo?.TotalRecordings || 0,
             ApprovedRecordings: recordingInfo?.ApprovedRecordings || 0
         };
     });
 
-    allUsers.sort((a, b) => b.TotalRecordings - a.TotalRecordings);
+    allUserData.sort((a, b) => b.TotalRecordings - a.TotalRecordings);
 
-    const paginatedUsers = allUsers.slice(skip, skip + safeLimit);
+    const paginatedUsers = allUserData.slice(skip, skip + safeLimit);
 
     return {
         users: paginatedUsers,
@@ -587,13 +601,14 @@ exports.getUsersByUniqueSentenceCount = async (limit = 10, statusFilter = null) 
 
     const stats = await NewRecording.aggregate(agg);
     const userIds = stats.map(s => s._id);
-    const users = await Person.find({ _id: { $in: userIds } });
+    const users = await UserNew.find({ _id: { $in: userIds } });
 
     return stats.map(s => {
         const user = users.find(u => u._id.toString() === s._id.toString());
         return {
-            userId: user?._id || s._id,
+            _id: user?._id || s._id,
             email: user?.email || null,
+            name: user?.name || '',
             uniqueSentences: s.uniqueSentenceCount,
             createdAt: user?.createdAt || null
         };
@@ -641,7 +656,7 @@ exports.getTotalUserContributions = async (options = {}) => {
 exports.approveRecordingsByEmail = async (email, filter = {}) => {
     if (!email) throw new Error("Email is required");
 
-    const user = await Person.findOne({ email: email.toLowerCase() });
+    const user = await UserNew.findOne({ email: email.toLowerCase() });
     if (!user) throw new Error("User not found");
 
     const { fromDate, toDate } = filter;
