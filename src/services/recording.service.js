@@ -459,9 +459,17 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         const sentenceId = sentence._id.toString();
         const recordingId = recording._id.toString();
 
-        // Add .txt file with sentence content in text/ folder
-        archive.append(sentence.content, {
-          name: `${rootFolder}/text/${sentenceId}.txt`
+        // Add .md file with sentence content in text/ folder
+        const mdContent = `---
+sentenceId: ${sentenceId}
+---
+
+# Sentence Content
+
+${sentence.content}
+`;
+        archive.append(mdContent, {
+          name: `${rootFolder}/text/${sentenceId}.md`
         });
 
         // Download and add .wav file from Cloudinary in audio/ folder

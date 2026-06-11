@@ -282,14 +282,14 @@ const convertToPcmWav = async (audioUrl) => {
 };
 
 // DOWNLOAD RECORDINGS BY SPEAKER
-const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved = 1) => {
+const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved = 1, isDownloadAll = false) => {
   const axios = require("axios");
   const path = require("path");
   const archiver = require("archiver");
   const { Readable } = require("stream");
 
   try {
-    const emailList = Array.isArray(emails) ? emails : [emails];
+    const emailList = Array.isArray(emails) ? emails : (emails ? [emails] : []);
 
     const parseDateTime = (dateStr, isEndOfDay = false) => {
       if (!dateStr) return null;
@@ -323,34 +323,23 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
     let userIndex = 0;
     let firstRootFolder = null;
 
-    for (const emailOrId of emailList) {
-      let personId = emailOrId;
-      let personEmail = emailOrId;
-
-      const isObjectId = emailOrId.match(/^[0-9a-fA-F]{24}$/);
-
-      if (!isObjectId) {
-        const person = await Person.findOne({ email: emailOrId.toLowerCase() });
-        if (!person) {
-          console.warn(`Người dùng không tồn tại: ${emailOrId}`);
-          continue;
-        }
-        personId = person._id;
-        personEmail = person.email;
+    const processRecordingsForPerson = async (personId, personEmail) => {
+      const filterQuery = { isApproved };
+      if (personId) {
+        filterQuery.personId = personId;
       }
-
-      const filterQuery = { personId, isApproved };
       if (Object.keys(dateFilter).length > 0) {
         filterQuery.recordedAt = dateFilter;
       }
 
       const recordings = await NewRecording.find(filterQuery)
+        .populate("personId", "email")
         .populate("sentenceId", "domainCode topic sentenceOrder content")
         .sort({ recordedAt: -1 });
 
       if (recordings.length === 0) {
         console.warn(`Không tìm thấy recordings cho: ${personEmail}`);
-        continue;
+        return 0;
       }
 
       const folderName = personEmail.replace(/[@.]/g, "_");
@@ -374,15 +363,22 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         const recordingId = recording._id.toString();
         const fileName = `${sentence.domainCode}-${sentence.topic}-${sentence.sentenceOrder}`;
 
-        const textContent = JSON.stringify({
-          domainCode: sentence.domainCode,
-          topic: sentence.topic,
-          sentenceOrder: sentence.sentenceOrder,
-          content: sentence.content
-        }, null, 2);
+        const fileNameMd = `${sentence.domainCode}-${sentence.topic}-${sentence.sentenceOrder}`;
+        
+        const mdContent = `---
+domainCode: ${sentence.domainCode}
+topic: ${sentence.topic}
+sentenceOrder: ${sentence.sentenceOrder}
+recordedAt: ${recording.recordedAt}
+personEmail: ${recording.personId?.email || personEmail}
+---
 
-        archive.append(textContent, {
-          name: `${rootFolder}/text/${sentenceId}.txt`
+# Sentence Content
+
+${sentence.content}
+`;
+        archive.append(mdContent, {
+          name: `${rootFolder}/text/${fileNameMd}.md`
         });
 
         if (recording.audioUrl) {
@@ -399,8 +395,39 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         }
       }
 
-      totalRecordingCount += recordings.length;
-      userIndex++;
+      return recordings.length;
+    };
+
+    if (isDownloadAll) {
+      // Download all recordings grouped by person
+      const allPersons = await Person.find({}).select("_id email");
+      for (const person of allPersons) {
+        const count = await processRecordingsForPerson(person._id, person.email);
+        if (count > 0) userIndex++;
+        totalRecordingCount += count;
+      }
+    } else {
+      // Download only specified emails
+      for (const emailOrId of emailList) {
+        let personId = emailOrId;
+        let personEmail = emailOrId;
+
+        const isObjectId = emailOrId.match(/^[0-9a-fA-F]{24}$/);
+
+        if (!isObjectId) {
+          const person = await Person.findOne({ email: emailOrId.toLowerCase() });
+          if (!person) {
+            console.warn(`Người dùng không tồn tại: ${emailOrId}`);
+            continue;
+          }
+          personId = person._id;
+          personEmail = person.email;
+        }
+
+        const count = await processRecordingsForPerson(personId, personEmail);
+        if (count > 0) userIndex++;
+        totalRecordingCount += count;
+      }
     }
 
     if (totalRecordingCount === 0) {

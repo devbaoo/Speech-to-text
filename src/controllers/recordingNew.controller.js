@@ -192,20 +192,18 @@ exports.downloadRecordingsBySpeaker = async (req, res) => {
       emails = personId;
     }
 
-    if (!emails) {
-      return res.status(400).json({
-        success: false,
-        message: "Thiếu email hoặc emails (comma-separated)"
-      });
-    }
+    // Support download all recordings when mode=all or emails is empty
+    const isDownloadAll = req.query.mode === "all" || !emails || emails.trim() === "";
 
-    const emailList = emails.split(",").map(e => e.trim()).filter(e => e);
-
-    if (emailList.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Danh sách email trống"
-      });
+    let emailList = null;
+    if (!isDownloadAll) {
+      emailList = emails.split(",").map(e => e.trim()).filter(e => e);
+      if (emailList.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Danh sách email trống"
+        });
+      }
     }
 
     const approvalStatus = isApproved ? parseInt(isApproved) : 1;
@@ -214,7 +212,8 @@ exports.downloadRecordingsBySpeaker = async (req, res) => {
       emailList,
       dateFrom,
       dateTo,
-      approvalStatus
+      approvalStatus,
+      isDownloadAll
     );
 
     res.setHeader("Content-Type", "application/zip");
