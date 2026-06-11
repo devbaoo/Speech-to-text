@@ -3,7 +3,7 @@ const path = require('path');
 const mongoose = require('mongoose');
 const NewSentence = require('../models/newSentence');
 
-const VALID_COLLECTIONS = ['sentence', 'Person', 'person', 'sentence_new', 'recording', 'recording_new', 'user_new'];
+const VALID_COLLECTIONS = ['sentence', 'Person', 'person', 'sentence_new', 'new_sentence', 'recording', 'recording_new', 'user_new'];
 
 const importJson = async (req, res, next) => {
   try {
