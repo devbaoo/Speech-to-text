@@ -11,10 +11,6 @@ const archiver = require("archiver");
 router.get("/", newSentenceController.getAll);
 router.get("/domains", newSentenceController.getDomains);
 router.get("/available", newSentenceController.getAvailableSentences);
-router.get("/:id", newSentenceController.getById);
-
-// User create sentence endpoint
-router.post("/user", newSentenceController.createUserSentence);
 
 // Download sentences
 router.get("/download", async (req, res) => {
@@ -45,10 +41,25 @@ router.get("/download", async (req, res) => {
         archive.pipe(res);
 
         for (const sentence of sentences) {
-            // Create text file with sentence info
-            const textContent = `${sentence.domainCode}\t${sentence.topic}\t${sentence.sentenceOrder}\t${sentence.content}\tStatus: ${sentence.status}\tBy: ${sentence.createdBy || "System"}\n`;
-            archive.append(textContent, {
-                name: `text/${sentence._id}.txt`
+            // Tạo tên file theo format: [domainCode]-[topic]-[sentenceOrder]
+            const fileName = `${sentence.domainCode}-${sentence.topic}-${sentence.sentenceOrder}`;
+            
+            // Tạo file markdown với nội dung
+            const mdContent = `---
+domainCode: ${sentence.domainCode}
+topic: ${sentence.topic}
+sentenceOrder: ${sentence.sentenceOrder}
+status: ${sentence.status}
+createdBy: ${sentence.createdBy || "System"}
+createdAt: ${sentence.createdAt}
+---
+
+# Sentence Content
+
+${sentence.content}
+`;
+            archive.append(mdContent, {
+                name: `text/${fileName}.md`
             });
         }
 
@@ -59,7 +70,11 @@ router.get("/download", async (req, res) => {
     }
 });
 
+// User create sentence endpoint
+router.post("/user", newSentenceController.createUserSentence);
+
 // Protected routes (admin/manager)
+router.get("/:id", newSentenceController.getById);
 router.post("/", verifyAdminOrManager, newSentenceController.createSentence);
 router.post("/bulk", verifyAdminOrManager, newSentenceController.createSentences);
 router.put("/:id", verifyAdminOrManager, newSentenceController.updateSentence);
