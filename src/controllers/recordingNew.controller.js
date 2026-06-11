@@ -206,7 +206,9 @@ exports.downloadRecordingsBySpeaker = async (req, res) => {
       }
     }
 
-    const approvalStatus = isApproved ? parseInt(isApproved) : 1;
+    const approvalStatus = (isApproved !== undefined && isApproved !== null && isApproved !== '')
+      ? parseInt(isApproved)
+      : null;
 
     const { archive, fileName, recordingCount } = await recordingService.downloadRecordingsBySpeaker(
       emailList,
