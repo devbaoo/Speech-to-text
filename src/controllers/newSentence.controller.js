@@ -23,6 +23,26 @@ exports.getAll = async (req, res) => {
     }
 };
 
+// Get available sentences for user (status = 1, not recorded by user)
+exports.getAvailableSentences = async (req, res) => {
+    try {
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(100, parseInt(req.query.limit) || 50);
+        const personId = req.query.personId || null;
+
+        const result = await newSentenceService.getAvailableSentences(page, limit, personId);
+        res.json({
+            count: result.count,
+            totalCount: result.totalCount,
+            totalPages: result.totalPages,
+            currentPage: result.currentPage,
+            data: result.sentences
+        });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
 // Get sentence by ID
 exports.getById = async (req, res) => {
     try {

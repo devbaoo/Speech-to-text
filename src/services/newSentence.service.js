@@ -1,4 +1,5 @@
 const NewSentence = require("../models/newSentence");
+const NewRecording = require("../models/newRecording");
 const { mapNewSentence } = require("../utils/newSentence.mapper");
 
 // Get all new sentences with pagination
@@ -27,6 +28,41 @@ exports.getSentences = async (page = 1, limit = 20, status = null) => {
         currentPage: page,
         pendingCount,
         activeCount
+    };
+};
+
+// Get available sentences (status = 1) that user hasn't recorded yet
+exports.getAvailableSentences = async (page = 1, limit = 50, personId = null) => {
+    const skip = (page - 1) * limit;
+
+    // Get all sentence IDs that user has already recorded
+    let recordedSentenceIds = [];
+    if (personId) {
+        const recordings = await NewRecording.find({ personId }).select("sentenceId").lean();
+        recordedSentenceIds = recordings.map(r => r.sentenceId);
+    }
+
+    // Filter: status = 1 AND not recorded by this user
+    const filterQuery = { status: 1 };
+    if (recordedSentenceIds.length > 0) {
+        filterQuery._id = { $nin: recordedSentenceIds };
+    }
+
+    const rows = await NewSentence.find(filterQuery)
+        .select("domainCode topic sentenceOrder content status createdBy createdAt")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean();
+
+    const totalCount = await NewSentence.countDocuments(filterQuery);
+
+    return {
+        sentences: rows.map(mapNewSentence),
+        count: rows.length,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        currentPage: page
     };
 };
 
