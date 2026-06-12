@@ -1,5 +1,7 @@
-require("dotenv").config();        
-require("./configs/cloudinary.config"); 
+require("dotenv").config();
+const dns = require("dns");
+dns.setServers(["8.8.8.8", "8.8.4.4"]);
+require("./configs/cloudinary.config");
 
 const app = require("./app");
 const connectDB = require("./configs/db.config");

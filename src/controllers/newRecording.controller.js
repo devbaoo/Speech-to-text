@@ -66,6 +66,9 @@ exports.uploadAudio = async (req, res) => {
       email: emailValue,
     });
 
+    // Update sentence status to 2
+    await NewSentence.findByIdAndUpdate(sentenceId, { status: 2 });
+
     res.status(201).json({
       success: true,
       message: "Upload audio thành công",
@@ -190,7 +193,7 @@ exports.downloadRecordingsBySpeaker = async (req, res) => {
 
     const approvalStatus = isApproved !== undefined && isApproved !== null && isApproved !== '' 
       ? parseInt(isApproved) 
-      : 0; // 0 means all recordings
+      : null; // null means all recordings
 
     const { archive, fileName, recordingCount } = await newRecordingService.downloadRecordingsBySpeaker(
       emailList,

@@ -337,12 +337,16 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
 
     const processRecordingsForPerson = async (personId, personEmail) => {
       const filterQuery = {};
-      // Only filter by isApproved if it's a valid positive number
-      if (typeof isApproved === 'number' && isApproved > 0) {
+      // Filter by isApproved if it's not null/undefined
+      if (isApproved !== null && isApproved !== undefined) {
         filterQuery.isApproved = isApproved;
       }
       if (personId) {
-        filterQuery.personId = personId;
+        const ids = Array.isArray(personId) ? personId : [personId];
+        filterQuery.$or = [
+          { personId: { $in: ids } },
+          { email: personEmail }
+        ];
       }
       if (Object.keys(dateFilter).length > 0) {
         filterQuery.recordedAt = dateFilter;
@@ -427,26 +431,32 @@ ${sentence.content}
     } else {
       // Download only specified emails
       for (const emailOrId of emailList) {
-        let personId = emailOrId;
+        let personIds = [];
         let personEmail = emailOrId;
 
         const isObjectId = emailOrId.match(/^[0-9a-fA-F]{24}$/);
 
         if (!isObjectId) {
-          // Try both Person and UserNew collections
-          let person = await Person.findOne({ email: emailOrId.toLowerCase() });
-          if (!person) {
-            person = await UserNew.findOne({ email: emailOrId.toLowerCase() });
+          // Try both Person and UserNew collections to collect all possible IDs for this email
+          const person = await Person.findOne({ email: emailOrId.toLowerCase() });
+          if (person) {
+            personIds.push(person._id);
+            personEmail = person.email;
           }
-          if (!person) {
+          const userNew = await UserNew.findOne({ email: emailOrId.toLowerCase() });
+          if (userNew) {
+            personIds.push(userNew._id);
+            personEmail = userNew.email;
+          }
+          if (personIds.length === 0) {
             console.warn(`Người dùng không tồn tại: ${emailOrId}`);
             continue;
           }
-          personId = person._id;
-          personEmail = person.email;
+        } else {
+          personIds = [emailOrId];
         }
 
-        const count = await processRecordingsForPerson(personId, personEmail);
+        const count = await processRecordingsForPerson(personIds, personEmail);
         if (count > 0) userIndex++;
         totalRecordingCount += count;
       }
