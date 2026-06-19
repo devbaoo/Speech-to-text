@@ -8,7 +8,7 @@ exports.createSentence = async (req, res) => {
     const { content } = req.body;
 
     const sentence = await sentenceService.createSentence(content);
-
+//dang sua
     res.status(201).json({
       message: "Sentence created successfully",
       data: sentence
