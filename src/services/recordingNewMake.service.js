@@ -1,7 +1,9 @@
 const cloudinary = require("cloudinary").v2;
 const Recording = require("../models/recordingNewMake");
 const Sentence = require("../models/sentenceNewMake");
+const NewRecording = require("../models/newRecording");
 const Person = require("../models/person");
+const UserNew = require("../models/userNew");
 const storage = require("./storage");
 
 const signStorageUrl = async (url) => {
@@ -268,23 +270,43 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
     let totalRecordingCount = 0;
     let firstRootFolder = null;
 
+    const safeFolderName = (value) => String(value || "unknown").replace(/[@.]/g, "_");
+    const safeFileName = (value) =>
+      String(value || "recording")
+        .replace(/[\\/:*?"<>|]+/g, "_")
+        .replace(/\s+/g, "_")
+        .slice(0, 120);
+
     for (const emailOrId of emailList) {
-      let personId = emailOrId;
+      let personIds = [];
       let personEmail = emailOrId;
 
       const isObjectId = emailOrId.match(/^[0-9a-fA-F]{24}$/);
 
       if (!isObjectId) {
-        const person = await Person.findOne({ email: emailOrId.toLowerCase() });
-        if (!person) {
-          console.warn(`Người dùng không tồn tại: ${emailOrId}`);
+        const normalizedEmail = emailOrId.toLowerCase();
+        const person = await Person.findOne({ email: normalizedEmail });
+        const userNew = await UserNew.findOne({ email: normalizedEmail });
+
+        if (person) {
+          personIds.push(person._id);
+          personEmail = person.email;
+        }
+
+        if (userNew) {
+          personIds.push(userNew._id);
+          personEmail = userNew.email;
+        }
+
+        if (personIds.length === 0) {
+          console.warn(`User not found: ${emailOrId}`);
           continue;
         }
-        personId = person._id;
-        personEmail = person.email;
+      } else {
+        personIds = [emailOrId];
       }
 
-      const filterQuery = { personId, isApproved };
+      const filterQuery = { personId: { $in: personIds }, isApproved };
       if (Object.keys(dateFilter).length > 0) {
         filterQuery.recordedAt = dateFilter;
       }
@@ -294,12 +316,26 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         .populate("sentenceId", "externalId domain csTranscript viEquivalent alignment")
         .sort({ recordedAt: -1 });
 
-      if (recordings.length === 0) {
-        console.warn(`Không tìm thấy recordings cho: ${personEmail}`);
+      const legacyFilterQuery = { isApproved };
+      legacyFilterQuery.$or = [
+        { personId: { $in: personIds } },
+        { email: personEmail },
+      ];
+      if (Object.keys(dateFilter).length > 0) {
+        legacyFilterQuery.recordedAt = dateFilter;
+      }
+
+      const legacyRecordings = await NewRecording.find(legacyFilterQuery)
+        .populate("personId", "email")
+        .populate("sentenceId", "domainCode topic sentenceOrder content")
+        .sort({ recordedAt: -1 });
+
+      if (recordings.length === 0 && legacyRecordings.length === 0) {
+        console.warn(`No recordings found for: ${personEmail}`);
         continue;
       }
 
-      const folderName = personEmail.replace(/[@.]/g, "_");
+      const folderName = safeFolderName(personEmail);
       const now = new Date();
       const dateTimeStr = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const rootFolder = `recordings_make_${folderName}_${dateTimeStr}`;
@@ -365,7 +401,46 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
         }
       }
 
-      totalRecordingCount += recordings.length;
+      for (const recording of legacyRecordings) {
+        const sentence = recording.sentenceId;
+        const sentenceId = sentence?._id?.toString() || recording.sentenceId?.toString() || recording._id.toString();
+        const recordingId = recording._id.toString();
+        const filePrefix = safeFileName(
+          sentence
+            ? `${sentence.domainCode || "domain"}-${sentence.topic || "topic"}-${sentence.sentenceOrder || sentenceId}`
+            : sentenceId
+        );
+
+        const textContent = JSON.stringify({
+          id: sentenceId,
+          speaker: recording.personId?.email || recording.email || personEmail,
+          domainCode: sentence?.domainCode || null,
+          topic: sentence?.topic || null,
+          sentenceOrder: sentence?.sentenceOrder || null,
+          content: sentence?.content || "",
+          recordedAt: recording.recordedAt || null,
+          type: recording.type || null,
+        }, null, 2);
+
+        archive.append(textContent, {
+          name: `${rootFolder}/text/${filePrefix}_${recordingId}.txt`,
+        });
+
+        if (recording.audioUrl) {
+          try {
+            const pcmBuffer = await convertToPcmWav(recording.audioUrl);
+            if (pcmBuffer) {
+              archive.append(pcmBuffer, {
+                name: `${rootFolder}/audio/${filePrefix}_${recordingId}.wav`,
+              });
+            }
+          } catch (error) {
+            console.error(`Error downloading audio ${sentenceId}_${recordingId}:`, error.message);
+          }
+        }
+      }
+
+      totalRecordingCount += recordings.length + legacyRecordings.length;
     }
 
     if (totalRecordingCount === 0) {
