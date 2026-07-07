@@ -122,6 +122,177 @@ const getAllRecordings = async (page = 1, limit = 20, status = null, email = nul
   };
 };
 
+const getPersonsWithRecordings = async (page = 1, limit = 20, status = null, email = null, fromDate = null, toDate = null) => {
+  const skip = (page - 1) * limit;
+  const recordingMatch = {};
+
+  if (status !== null && status !== undefined) {
+    recordingMatch.isApproved = status;
+  }
+
+  if (fromDate || toDate) {
+    recordingMatch.recordedAt = {};
+    if (fromDate) recordingMatch.recordedAt.$gte = new Date(fromDate);
+    if (toDate) recordingMatch.recordedAt.$lte = new Date(toDate);
+  }
+
+  const pipeline = [
+    { $match: recordingMatch },
+    {
+      $lookup: {
+        from: "person",
+        localField: "personId",
+        foreignField: "_id",
+        as: "person",
+      },
+    },
+    { $unwind: "$person" },
+  ];
+
+  if (email) {
+    pipeline.push({
+      $match: {
+        "person.email": { $regex: email, $options: "i" },
+      },
+    });
+  }
+
+  pipeline.push(
+    {
+      $group: {
+        _id: "$personId",
+        person: { $first: "$person" },
+        recordingCount: { $sum: 1 },
+        approvedCount: {
+          $sum: { $cond: [{ $eq: ["$isApproved", 1] }, 1, 0] },
+        },
+        pendingCount: {
+          $sum: { $cond: [{ $eq: ["$isApproved", 0] }, 1, 0] },
+        },
+        rejectedCount: {
+          $sum: { $cond: [{ $eq: ["$isApproved", 2] }, 1, 0] },
+        },
+        totalDurationSeconds: {
+          $sum: {
+            $add: [
+              { $ifNull: ["$durationPlaintext", 0] },
+              { $ifNull: ["$durationContent", 0] },
+            ],
+          },
+        },
+        latestRecordedAt: { $max: "$recordedAt" },
+      },
+    },
+    { $sort: { latestRecordedAt: -1 } },
+    {
+      $facet: {
+        metadata: [{ $count: "totalCount" }],
+        stats: [
+          {
+            $group: {
+              _id: null,
+              totalMale: {
+                $sum: { $cond: [{ $eq: ["$person.gender", "Male"] }, 1, 0] },
+              },
+              totalFemale: {
+                $sum: { $cond: [{ $eq: ["$person.gender", "Female"] }, 1, 0] },
+              },
+              totalCompletedSentences: { $sum: "$approvedCount" },
+              totalRecordingCount: { $sum: "$recordingCount" },
+            },
+          },
+        ],
+        data: [{ $skip: skip }, { $limit: limit }],
+      },
+    }
+  );
+
+  const [result] = await Recording.aggregate(pipeline);
+  const groups = result?.data || [];
+  const totalCount = result?.metadata?.[0]?.totalCount || 0;
+  const stats = result?.stats?.[0] || {};
+
+  if (!groups.length) {
+    return {
+      persons: [],
+      count: 0,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit),
+      currentPage: page,
+      totalMale: stats.totalMale || 0,
+      totalFemale: stats.totalFemale || 0,
+      totalCompletedSentences: stats.totalCompletedSentences || 0,
+      totalRecordingCount: stats.totalRecordingCount || 0,
+    };
+  }
+
+  const personIds = groups.map((group) => group._id);
+  const detailQuery = {
+    ...recordingMatch,
+    personId: { $in: personIds },
+  };
+
+  const recordings = await Recording.find(detailQuery)
+    .populate("sentenceId", "externalId domain csTranscript viEquivalent")
+    .sort({ recordedAt: -1 });
+
+  const recordingsByPerson = {};
+
+  await Promise.all(recordings.map(async (recording) => {
+    const personId = recording.personId.toString();
+
+    if (!recordingsByPerson[personId]) {
+      recordingsByPerson[personId] = [];
+    }
+
+    recordingsByPerson[personId].push({
+      RecordingID: recording._id,
+      SentenceID: recording.sentenceId?._id || recording.sentenceId,
+      externalId: recording.sentenceId?.externalId || null,
+      domain: recording.sentenceId?.domain || null,
+      csTranscript: recording.sentenceId?.csTranscript || null,
+      viEquivalent: recording.sentenceId?.viEquivalent || null,
+      isApproved: recording.isApproved,
+      recordedAt: recording.recordedAt,
+      AudioPlaintext: await signStorageUrl(recording.audioPlaintext),
+      AudioContent: await signStorageUrl(recording.audioContent),
+      durationPlaintext: recording.durationPlaintext,
+      durationContent: recording.durationContent,
+    });
+  }));
+
+  const persons = groups.map((group) => {
+    const personId = group._id.toString();
+
+    return {
+      PersonID: group._id,
+      Email: group.person.email,
+      Gender: group.person.gender,
+      Role: group.person.role,
+      CreatedAt: group.person.createdAt,
+      recordingCount: group.recordingCount,
+      approvedCount: group.approvedCount,
+      pendingCount: group.pendingCount,
+      rejectedCount: group.rejectedCount,
+      totalDurationSeconds: group.totalDurationSeconds,
+      latestRecordedAt: group.latestRecordedAt,
+      recordings: recordingsByPerson[personId] || [],
+    };
+  });
+
+  return {
+    persons,
+    count: persons.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: page,
+    totalMale: stats.totalMale || 0,
+    totalFemale: stats.totalFemale || 0,
+    totalCompletedSentences: stats.totalCompletedSentences || 0,
+    totalRecordingCount: stats.totalRecordingCount || 0,
+  };
+};
+
 // APPROVE recording
 const approveRecording = async (id) => {
   const recording = await Recording.findById(id);
@@ -461,6 +632,7 @@ const downloadRecordingsBySpeaker = async (emails, dateFrom, dateTo, isApproved 
 
 module.exports = {
   getAllRecordings,
+  getPersonsWithRecordings,
   approveRecording,
   rejectRecording,
   getRecordingsByStatus,

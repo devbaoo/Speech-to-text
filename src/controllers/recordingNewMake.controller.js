@@ -141,6 +141,35 @@ exports.getAllRecordings = async (req, res) => {
   }
 };
 
+exports.getPersonsWithRecordings = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    const status = (req.query.isApproved !== undefined || req.query.IsApproved !== undefined)
+      ? parseInt(req.query.isApproved || req.query.IsApproved)
+      : null;
+    const email = req.query.email || req.query.Email || null;
+    const fromDate = req.query.fromDate || null;
+    const toDate = req.query.toDate || null;
+
+    const result = await recordingService.getPersonsWithRecordings(page, limit, status, email, fromDate, toDate);
+
+    res.status(200).json({
+      count: result.count,
+      totalCount: result.totalCount,
+      totalPages: result.totalPages,
+      currentPage: result.currentPage,
+      totalMale: result.totalMale,
+      totalFemale: result.totalFemale,
+      totalCompletedSentences: result.totalCompletedSentences,
+      totalRecordingCount: result.totalRecordingCount,
+      data: result.persons,
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching persons with recordings", error: err.message });
+  }
+};
+
 exports.approveRecording = async (req, res) => {
   try {
     const id = req.params.id;

@@ -11,6 +11,7 @@ router.post(
   recordingController.uploadAudio
 );
 router.get("/", recordingController.getAllRecordings);
+router.get("/persons-with-recordings", recordingController.getPersonsWithRecordings);
 router.get("/status/:status", recordingController.getRecordingsByStatus);
 router.get("/download", recordingController.downloadRecordingsBySpeaker);
 router.patch("/:id/approve", verifyAdminOrManager, recordingController.approveRecording);
