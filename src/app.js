@@ -16,6 +16,7 @@ app.use("/api/sentences", require("./routes/sentence.route"));
 app.use("/api/sentences-new", require("./routes/sentenceNew.route"));
 app.use("/api/sentences-new-user", require("./routes/newSentence.route"));
 app.use("/api/sentences-new-make", require("./routes/sentenceNewMake.route"));
+app.use("/api/sentence-stats", require("./routes/sentenceStats.route"));
 app.use("/api/recordings-new-make", require("./routes/recordingNewMake.route"));
 app.use("/api/recordings", require("./routes/recording.route"));
 app.use("/api/recordings-new", require("./routes/recordingNew.route"));

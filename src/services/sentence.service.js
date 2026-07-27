@@ -2,6 +2,80 @@ const Sentence = require("../models/sentence");
 const {mapSentence } = require("../utils/sentence.mapper");
 const Recording = require("../models/recording");
 
+const ADMIN_CREATED_BY_VALUES = ["admin", "admin2026@gmail.com"];
+
+const escapeRegExp = (value) => {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+};
+
+const buildAdminCreatedFilter = () => {
+  return {
+    $or: [
+      { createdBy: null },
+      { createdBy: "" },
+      {
+        createdBy: {
+          $in: ADMIN_CREATED_BY_VALUES.map((value) => new RegExp(`^${escapeRegExp(value)}$`, "i"))
+        }
+      }
+    ]
+  };
+};
+
+const buildUserCreatedFilter = () => {
+  return {
+    $and: [
+      { createdBy: { $exists: true, $nin: [null, ""] } },
+      ...ADMIN_CREATED_BY_VALUES.map((value) => ({
+        createdBy: { $not: new RegExp(`^${escapeRegExp(value)}$`, "i") }
+      }))
+    ]
+  };
+};
+
+const buildCreatedByTypeFilter = (createdByType) => {
+  if (!createdByType || createdByType === "all") {
+    return {};
+  }
+
+  if (createdByType === "admin") {
+    return buildAdminCreatedFilter();
+  }
+
+  if (createdByType === "user") {
+    return buildUserCreatedFilter();
+  }
+
+  throw new Error("createdByType khong hop le. Chi chap nhan: all, admin, user");
+};
+
+const mergeFilters = (...filters) => {
+  const validFilters = filters.filter((filter) => filter && Object.keys(filter).length > 0);
+
+  if (!validFilters.length) {
+    return {};
+  }
+
+  if (validFilters.length === 1) {
+    return validFilters[0];
+  }
+
+  return { $and: validFilters };
+};
+
+const getCreatorStats = async (baseFilter = {}) => {
+  const [total, adminCreated] = await Promise.all([
+    Sentence.countDocuments(baseFilter),
+    Sentence.countDocuments(mergeFilters(baseFilter, buildAdminCreatedFilter()))
+  ]);
+
+  return {
+    total,
+    adminCreated,
+    userCreated: total - adminCreated
+  };
+};
+
 //Create sentence 
 exports.createSentence = async (content) => {
     if (!content) {
@@ -43,12 +117,13 @@ exports.createSentence = async (content) => {
 
 
 //Get all sentence with pagination
-exports.getSentences = async (page = 1, limit = 20, status = null) => {
+exports.getSentences = async (page = 1, limit = 20, status = null, createdByType = "all") => {
     const skip = (page - 1) * limit;
-    const filterQuery = {};
+    const baseFilter = {};
     if (status !== null && status !== undefined) {
-      filterQuery.status = status;
+      baseFilter.status = status;
     }
+    const filterQuery = mergeFilters(baseFilter, buildCreatedByTypeFilter(createdByType));
     
     const rows = await Sentence.find(filterQuery)
       .select("content createdAt status createdBy")
@@ -63,6 +138,8 @@ exports.getSentences = async (page = 1, limit = 20, status = null) => {
     const rejectedCount = await Sentence.countDocuments({ status: 3 }); // Bị từ chối (status = 3)
     const recordedCount = await Sentence.countDocuments({ status: 2 }); // Đã thu âm (status = 2)
     
+    const creatorStats = await getCreatorStats(baseFilter);
+
     return {
       sentences: rows.map(mapSentence),
       count: rows.length,
@@ -72,7 +149,10 @@ exports.getSentences = async (page = 1, limit = 20, status = null) => {
       pendingCount,
       approvedCount,
       rejectedCount,
-      recordedCount
+      recordedCount,
+      adminCreatedCount: creatorStats.adminCreated,
+      userCreatedCount: creatorStats.userCreated,
+      creatorStats
     };
 };
 

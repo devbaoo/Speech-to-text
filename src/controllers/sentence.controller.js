@@ -191,8 +191,11 @@ exports.getAll = async (req, res) => {
     const status = (req.query.status !== undefined || req.query.Status !== undefined) 
       ? parseInt(req.query.status || req.query.Status) 
       : null;
+    const rawCreatedByType =
+      req.query.createdByType || req.query.CreatedByType || req.query.creatorType || req.query.creator || "all";
+    const createdByType = rawCreatedByType.toString().toLowerCase();
     
-    const result = await sentenceService.getSentences(page, limit, status);
+    const result = await sentenceService.getSentences(page, limit, status, createdByType);
     res.json({
       count: result.count,
       totalCount: result.totalCount,
@@ -202,10 +205,13 @@ exports.getAll = async (req, res) => {
       approvedCount: result.approvedCount,
       rejectedCount: result.rejectedCount,
       recordedCount: result.recordedCount,
+      adminCreatedCount: result.adminCreatedCount,
+      userCreatedCount: result.userCreatedCount,
+      creatorStats: result.creatorStats,
       data: result.sentences
     });
   } catch (err) {
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: err.message || "Server error" });
   }
 };
 
